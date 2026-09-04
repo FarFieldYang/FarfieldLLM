@@ -1,7 +1,7 @@
 #include <iostream>
 #include <vector>
 #include <string>
-#include "byte_tokenizer.h"
+#include "../tokenizer/byte_tokenizer.h"
 
 int main(){
     std::string text = "hello, FarfieldLLM!  你好，远场大语言模型！😊😊😊";
