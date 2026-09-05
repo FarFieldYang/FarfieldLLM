@@ -1,4 +1,4 @@
-#include "../tokenizer/bpe_trainer.h"
+#include "bpe_trainer.h"
 
 #include <iostream>
 #include <chrono>
@@ -11,7 +11,7 @@ int main(){
 
     BPEModel model = trainer.train_file(
         "data/sample.txt",
-        500
+        16000
     );
 
     auto end = std::chrono::high_resolution_clock::now();
