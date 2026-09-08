@@ -1,6 +1,7 @@
 #include "byte_tokenizer.h"
+#include "bpe_model.h"
 
-std::vector<int> ByteTokenizer::encode(const std::string& text) const {
+TokenIds ByteTokenizer::encode(const std::string& text) const {
     std::vector<int> tokens;
     for(char c : text){
         tokens.push_back(static_cast<unsigned char>(c));

@@ -3,6 +3,12 @@
 #include <vector>
 #include <string>
 
+using TokenId = int;
+using TokenIds = std::vector<TokenId>;
+using TokenPair = std::pair<TokenId, TokenId>;
+using Byte = unsigned char;
+using Bytes = std::vector<Byte>;
+
 class Tokenizer {
 public:
     virtual std::vector<int> encode(const std::string& text) const = 0;
@@ -10,3 +16,4 @@ public:
 
     virtual ~Tokenizer() = default;
 };
+

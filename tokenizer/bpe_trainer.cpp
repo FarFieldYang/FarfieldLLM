@@ -1,11 +1,73 @@
-#include "bpe_trainer.h"
-#include "byte_tokenizer.h"
 #include <fstream>
 #include <iterator>
 #include <stdexcept>
-
-
+#include <unordered_map>
+#include <utility>
 #include <cstdio>
+
+#include "bpe_trainer.h"
+#include "byte_tokenizer.h"
+BPEtrainer::BPEtrainer() {vocab_ = init_vocab();}
+
+Vocab BPEtrainer::init_vocab(){
+    Vocab v(256);
+    for(int i = 0; i < 256; ++i) v[i].push_back(static_cast<Byte>(i));
+    return v;
+}
+
+CountedPieces BPEtrainer::pre_tokenize(const std::string& text){
+    return pretokenize_and_count(text);
+}
+
+TokenPieces BPEtrainer::text_to_token(const CountedPieces& textpieces){
+    TokenPieces pieces;
+    pieces.reserve(textpieces.size());
+    ByteTokenizer Bt;
+    for(const auto& [text, frequency] : textpieces){
+        TokenPiece piece;
+        piece.ids = Bt.encode(text);
+        piece.frequency = frequency;
+        pieces.push_back(std::move(piece));
+    }
+    return pieces;
+}
+
+
+
+void BPEtrainer::init_state(const TokenPieces& tokenpieces){
+    state_ = Trainstate{};
+
+    for(PieceId i = 0; i < tokenpieces.size(); ++i){
+        const TokenPiece& piece = tokenpieces[i];
+        for(std::size_t j = 0; j + 1 < piece.ids.size(); ++j){
+            TokenPair pair = {piece.ids[j], piece.ids[j + 1]};
+            PairInfo& info = state_.pair_info_map[pair];
+            info.count += piece.frequency;
+            info.pieces.insert(i);
+        }
+    }
+
+    for(const auto& [pair, info] : state_.pair_info_map) state_.heap.push({info.count, pair});
+}
+
+TokenPair BPEtrainer::get_best_pair(){
+    while(!state_.heap.empty()){
+        auto [count, pair] = state_.heap.top();
+        auto it = state_.pair_info_map.find(pair);
+
+        if(it != state_.pair_info_map.end() && it->second.count == count){
+            state_.heap.pop();
+            if(count < 2) return NO_PAIR;
+            return pair;
+        }
+        state_.heap.pop();
+    }
+    return NO_PAIR;
+}
+
+void merge_once(TokenPieces& tokenpieces,const TokenPair& pair){
+
+}
 
 
 BPEModel BPEtrainer::train(const std::string& text, int vocab_size, const BPEModel& initial_model){
@@ -40,53 +102,7 @@ BPEModel BPEtrainer::train_file(const std::string& path, int vocab_size, const B
 
 }
 
-BPEModel BPEtrainer::base_model(){
-    BPEModel basemodel;
-    int i = 0;
-    while(i < 256){
-        basemodel.vocab.push_back({static_cast<unsigned char>(i)});
-        ++i;
-    }
-    return basemodel;
-}
 
-TokenPair BPEtrainer::count(const std::vector<int>& ids){
-    std::map<TokenPair, int> pair_count;
-    int max_count = 0;
-    TokenPair new_bestpair = NO_PAIR;
-    for(std::size_t i = 0; i + 1 < ids.size(); ++i){
-        TokenPair pair = {ids[i], ids[i + 1]};
-        int count = ++pair_count[pair];
-        if(count > max_count || (count == max_count && pair < new_bestpair)){
-            max_count = count; new_bestpair = pair;
-        }
-    }
-    return new_bestpair;
-}
-
-TokenPair BPEtrainer::count_and_merge(std::vector<int>& ids, TokenId new_id, const TokenPair& bestpair){
-    std::map<TokenPair, int> pair_count;
-    int max_count = 0;
-    TokenPair new_bestpair = NO_PAIR;
-    std::size_t read = 0, write = 0;
-    while(read < ids.size()){
-        if(read + 1 < ids.size() && TokenPair{ids[read], ids[read + 1]} == bestpair){
-            ids[write++] = new_id;
-            read += 2;
-        }else{
-            ids[write++] = ids[read++];
-        }
-        if (write >= 2){
-            TokenPair pair = {ids[write - 2], ids[write - 1]};
-            int count = ++pair_count[pair];
-            if(count > max_count || (count == max_count && pair < new_bestpair)){
-                max_count = count; new_bestpair = pair;
-            }
-        }
-    }
-    ids.resize(write);
-    return new_bestpair;
-}
 
 void BPEtrainer::id_to_bytes(BPEModel& model, const TokenPair& pair){
     std::vector<unsigned char> bytes = model.vocab[pair.first];
