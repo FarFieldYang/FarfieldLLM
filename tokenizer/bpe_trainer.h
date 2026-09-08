@@ -40,6 +40,9 @@ struct Trainstate{
     MaxHeap heap;
 };
 
+using PairCounts = std::unordered_map<TokenPair, std::size_t, PairHash>;
+using TokenPairs = std::unordered_set<TokenPair, PairHash>;
+
 class BPEtrainer {
 public:
     BPEModel train(const std::string& text, std::size_t vocab_size);
@@ -53,12 +56,20 @@ private:
     static CountedPieces pre_tokenize(const std::string& text);
     static TokenPieces text_to_token(const CountedPieces& textpieces);
     void train_merges(TokenPieces& tokenpieces, std::size_t vocab_size);
-    void id_to_bytes(const TokenPair& pair);
+    
 
 //train_merge() helper function
     void init_state(const TokenPieces& tokenpieces);
     TokenPair get_best_pair();
-    void merge_once(TokenPieces& tokenpieces,const TokenPair& pair);
+    void merge_once(TokenPieces& tokenpieces,const TokenPair& best_pair);  
 
+//merge_once() helper function
+    void add_vocab_bytes(const TokenPair& pair);
+    void merge_piece(TokenPiece& piece, TokenId new_id, const TokenPair& best_pair);
+    PairCounts count_pairs(const TokenPiece& piece);
+    void update_state(PieceId piece_id, TokenPiece& piece, PairCounts& old_counts, PairCounts& new_counts, TokenPairs& touched_pairs);
+    void refresh_heap(TokenPairs& touched_pairs);
+
+//trian_file() helper function
     static std::string file_to_text(const std::string& path);
 };

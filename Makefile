@@ -1,41 +1,40 @@
-CXX = g++
-CXXFLAGS = -O2 -std=c++17 -I tokenizer
+CXX := g++
+CXXFLAGS := -std=c++20 -O2 -Wall -Wextra -pedantic -Itokenizer
 
-BPE_SOURCES = tokenizer/bpe_trainer.cpp tokenizer/byte_tokenizer.cpp
-BPE_HEADERS = tokenizer/bpe_trainer.h tokenizer/byte_tokenizer.h tokenizer/tokenizer.h
+TARGET := build/test_bpe_trainer_v2
+STRESS_TARGET := build/test_bpe_stress_v2
 
-.PHONY: all test clean test_bpe_file test_bpe_trainer test_byte_tokenizer
+SOURCES := \
+	tokenizer/bpe_trainer.cpp \
+	tokenizer/bpe_model.cpp \
+	tokenizer/byte_tokenizer.cpp \
+	tokenizer/pre_tokenizer.cpp \
+	tests/test_bpe_trainer_v2.cpp
 
-all: test
+STRESS_SRC := \
+	tokenizer/bpe_trainer.cpp \
+	tokenizer/bpe_model.cpp \
+	tokenizer/byte_tokenizer.cpp \
+	tokenizer/pre_tokenizer.cpp \
+	tests/test_bpe_stress_v2.cpp
 
-test: build/test_bpe_file build/test_bpe_trainer build/test_byte_tokenizer
+all: $(TARGET)
 
-test_bpe_file: build/test_bpe_file
-
-test_bpe_trainer: build/test_bpe_trainer
-
-test_byte_tokenizer: build/test_byte_tokenizer
-
-test_bpe_tokenizer: build/test_bpe_tokenizer
-
-
-build/test_bpe_file: tests/test_bpe_file.cpp $(BPE_SOURCES) $(BPE_HEADERS)
+$(TARGET): $(SOURCES)
 	mkdir -p build
-	$(CXX) $(CXXFLAGS) tests/test_bpe_file.cpp $(BPE_SOURCES) -o build/test_bpe_file
+	$(CXX) $(CXXFLAGS) $(SOURCES) -o $(TARGET)
 
+run: $(TARGET)
+	./$(TARGET)
 
-build/test_bpe_trainer: tests/test_bpe_trainer.cpp $(BPE_SOURCES) $(BPE_HEADERS)
+$(STRESS_TARGET): $(STRESS_SRC)
 	mkdir -p build
-	$(CXX) $(CXXFLAGS) tests/test_bpe_trainer.cpp $(BPE_SOURCES) -o build/test_bpe_trainer
+	$(CXX) $(CXXFLAGS) $(STRESS_SRC) -o $(STRESS_TARGET)
 
-
-build/test_byte_tokenizer: tests/test_byte_tokenizer.cpp tokenizer/byte_tokenizer.cpp tokenizer/byte_tokenizer.h tokenizer/tokenizer.h
-	mkdir -p build
-	$(CXX) $(CXXFLAGS) tests/test_byte_tokenizer.cpp tokenizer/byte_tokenizer.cpp -o build/test_byte_tokenizer
-
-build/test_bpe_tokenizer: tests/test_bpe_tokenizer.cpp tokenizer/bpe_tokenizer.cpp tokenizer/bpe_trainer.cpp tokenizer/byte_tokenizer.cpp
-	mkdir -p build
-	$(CXX) $(CXXFLAGS) tests/test_bpe_tokenizer.cpp tokenizer/bpe_tokenizer.cpp tokenizer/bpe_trainer.cpp tokenizer/byte_tokenizer.cpp -o build/test_bpe_tokenizer
+stress: $(STRESS_TARGET)
+	./$(STRESS_TARGET)
 
 clean:
 	rm -rf build
+
+.PHONY: all run stress clean
