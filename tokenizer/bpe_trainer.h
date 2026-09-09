@@ -8,9 +8,10 @@
 #include <queue>
 #include <unordered_map>
 #include <functional>
+#include <cstdint>
+
 #include "bpe_model.h"
 #include "pre_tokenizer.h"
-
 
 struct TokenPiece{
     TokenIds ids;
@@ -26,9 +27,13 @@ struct PairInfo{
 };
 struct PairHash {
     std::size_t operator()(const TokenPair& pair) const noexcept {
-        std::size_t h1 = std::hash<TokenId>{}(pair.first);
-        std::size_t h2 = std::hash<TokenId>{}(pair.second);
-        return h1 ^ (h2 << 1);
+        std::uint64_t key =
+            (static_cast<std::uint64_t>(
+                static_cast<std::uint32_t>(pair.first)
+            ) << 32)
+            |
+            static_cast<std::uint32_t>(pair.second);
+        return std::hash<std::uint64_t>{}(key);
     }
 };
 using PairInfoMap = std::unordered_map<TokenPair, PairInfo, PairHash>;

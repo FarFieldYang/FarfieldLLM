@@ -1,5 +1,6 @@
-#include "pre_tokenizer.h"
 #include <regex>
+
+#include "pre_tokenizer.h"
 
 CountedPieces pretokenize_and_count(const std::string& text){
     std::regex pattern(PATTERN);

@@ -5,7 +5,7 @@
 #include <stdexcept>
 #include <string>
 
-#include "../tokenizer/bpe_trainer.h"
+#include "bpe_trainer.h"
 
 
 void run_stress_test(
@@ -122,7 +122,7 @@ int main() {
             trainer,
             "Long corpus",
             "data/test.txt",
-            2000
+            10000
         );
 
         std::cout

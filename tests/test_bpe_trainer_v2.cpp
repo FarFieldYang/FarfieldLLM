@@ -1,7 +1,7 @@
 #include <cassert>
 #include <iostream>
 
-#include "../tokenizer/bpe_trainer.h"
+#include "bpe_trainer.h"
 
 
 int main() {

@@ -1,10 +1,10 @@
-#include "bpe_tokenizer.h"
-#include "byte_tokenizer.h"
-
 #include <climits>
 #include <fstream>
 #include <iterator>
 #include <stdexcept>
+
+#include "bpe_tokenizer.h"
+#include "byte_tokenizer.h"
 
 BPETokenizer::BPETokenizer(const BPEModel& model): model_(model) {}
 

@@ -2,6 +2,7 @@
 
 #include <string>
 #include <vector>
+
 #include "tokenizer.h"
 
 class ByteTokenizer : public Tokenizer {

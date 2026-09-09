@@ -1,4 +1,5 @@
 #include <utility>
+
 #include "bpe_model.h"
 
 BPEModel::BPEModel(Vocab vocab, MergeRules merges) : vocab_(std::move(vocab)), merges_(std::move(merges)){}
