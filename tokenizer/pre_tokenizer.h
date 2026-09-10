@@ -5,7 +5,9 @@
 #include <cstddef>
 #include <unordered_map>
 
-using Pieces = std::vector<std::string>;
+using Piece = std::string;
+using Pieces = std::vector<Piece>;
+
 using CountedPieces = std::unordered_map<std::string, std::size_t>;
 
 //only support English-like text with whitespace-separated text.

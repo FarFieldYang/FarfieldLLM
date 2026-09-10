@@ -1,12 +1,12 @@
 # Development Log
 
-## 2026.09.03 Initialization and Byte_tokenizer
+## 2026.09.03 Initialization and Byte Tokenizer
 easy
 
-## 2026.09.04 BPE_tokenizer and BPE_trainer
+## 2026.09.04 BPE Tokenizer and BPE Trainer
 not easy
 
-## 2026.09.08 BPE_trainer v2
+## 2026.09.08 BPE Trainer v2
 really difficult!!!
 
 Reworked the BPE trainer with pre-tokenization, deduplicated pieces, incremental pair statistics, affected-piece indexing, and heap-based merge selection.

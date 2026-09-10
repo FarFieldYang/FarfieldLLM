@@ -8,7 +8,7 @@
 #include <queue>
 #include <unordered_map>
 #include <functional>
-#include <cstdint>
+
 
 #include "bpe_model.h"
 #include "pre_tokenizer.h"
@@ -18,24 +18,13 @@ struct TokenPiece{
     std::size_t frequency;
 };
 using TokenPieces = std::vector<TokenPiece>;
-constexpr TokenPair NO_PAIR = {-1, -1};
 
 using PieceId = std::size_t;
 struct PairInfo{
     std::size_t count = 0;
     std::unordered_set<PieceId> pieces;
 };
-struct PairHash {
-    std::size_t operator()(const TokenPair& pair) const noexcept {
-        std::uint64_t key =
-            (static_cast<std::uint64_t>(
-                static_cast<std::uint32_t>(pair.first)
-            ) << 32)
-            |
-            static_cast<std::uint32_t>(pair.second);
-        return std::hash<std::uint64_t>{}(key);
-    }
-};
+
 using PairInfoMap = std::unordered_map<TokenPair, PairInfo, PairHash>;
 
 using HeapEntry = std::pair<std::size_t, TokenPair>;
@@ -48,7 +37,8 @@ struct Trainstate{
 using PairCounts = std::unordered_map<TokenPair, std::size_t, PairHash>;
 using TokenPairs = std::unordered_set<TokenPair, PairHash>;
 
-class BPEtrainer {
+
+class BPETrainer {
 public:
     BPEModel train(const std::string& text, std::size_t vocab_size);
     BPEModel train_file(const std::string& path, std::size_t vocab_size);

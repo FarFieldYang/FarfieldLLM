@@ -51,7 +51,7 @@ int main(int argc, char* argv[]) {
         << "========================================\n"
         << "Training started...\n";
 
-    BPEtrainer trainer;
+    BPETrainer trainer;
 
     const auto start = Clock::now();
 

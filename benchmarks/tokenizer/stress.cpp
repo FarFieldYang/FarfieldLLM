@@ -9,7 +9,7 @@
 
 
 void run_stress_test(
-    BPEtrainer& trainer,
+    BPETrainer& trainer,
     const std::string& name,
     const std::string& path,
     std::size_t target_vocab
@@ -107,7 +107,7 @@ void run_stress_test(
 
 int main() {
     try {
-        BPEtrainer trainer;
+        BPETrainer trainer;
 
         // Same corpus used for the old V1 benchmark.
         run_stress_test(

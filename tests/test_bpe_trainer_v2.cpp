@@ -27,7 +27,7 @@ int main() {
     // ============================================================
 
     {
-        BPEtrainer trainer;
+        BPETrainer trainer;
 
         BPEModel model = trainer.train("aaaa", 300);
 
@@ -76,7 +76,7 @@ int main() {
     // ============================================================
 
     {
-        BPEtrainer trainer;
+        BPETrainer trainer;
 
         BPEModel model = trainer.train("abababab", 300);
 
@@ -125,7 +125,7 @@ int main() {
     // ============================================================
 
     {
-        BPEtrainer trainer;
+        BPETrainer trainer;
 
         BPEModel first = trainer.train("abababab", 300);
         BPEModel second = trainer.train("aaaa", 300);

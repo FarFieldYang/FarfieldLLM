@@ -35,7 +35,7 @@ int main() {
         static_cast<double>(bytes) /
         (1024.0 * 1024.0);
 
-    BPEtrainer trainer;
+    BPETrainer trainer;
 
     std::cout
         << "========================================\n"
