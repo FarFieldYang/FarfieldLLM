@@ -4,6 +4,7 @@
 #include <string>
 #include <utility>
 #include <cstdint>
+#include <functional>
 
 using TokenId = int;
 using TokenIds = std::vector<TokenId>;

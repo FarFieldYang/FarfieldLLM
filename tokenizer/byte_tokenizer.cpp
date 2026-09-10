@@ -1,6 +1,6 @@
 #include "byte_tokenizer.h"
 
-TokenIds ByteTokenizer::encode(const std::string& text) const {
+TokenIds ByteTokenizer::encode(const std::string& text) {
     std::vector<int> tokens;
     for(char c : text){
         tokens.push_back(static_cast<Byte>(c));

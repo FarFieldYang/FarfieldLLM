@@ -7,8 +7,6 @@
 #include <unordered_set>
 #include <queue>
 #include <unordered_map>
-#include <functional>
-
 
 #include "bpe_model.h"
 #include "pre_tokenizer.h"

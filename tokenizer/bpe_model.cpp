@@ -38,7 +38,6 @@ std::optional<MergeInfo> BPEModel::find_merge(const TokenPair& pair) const{
 }
 
 void BPEModel::build_vocab_map(){
-    TokenId index = 0;
     for(std::size_t i = 0; i < vocab_.size(); ++i){
         const Bytes& bytes = vocab_[i];
         std::string key(bytes.begin(), bytes.end());
