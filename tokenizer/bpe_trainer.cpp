@@ -1,106 +1,167 @@
-#include "bpe_trainer.h"
-#include "byte_tokenizer.h"
 #include <fstream>
 #include <iterator>
 #include <stdexcept>
-
-
+#include <unordered_map>
+#include <utility>
 #include <cstdio>
+#include <unordered_set>
 
+#include "bpe_trainer.h"
+#include "byte_tokenizer.h"
 
-BPEModel BPEtrainer::train(const std::string& text, int vocab_size, const BPEModel& initial_model){
-    if (vocab_size <= static_cast<int>(initial_model.vocab.size())) {
-        return initial_model;
-    }
-    int merge_times = vocab_size - static_cast<int>(initial_model.vocab.size());
-    BPEModel model = initial_model;
-
-    std::vector<int> ids = texts_to_ids(text);
-    
-    if (ids.size() < 2) {
-        throw std::runtime_error("Training text must contain at least two bytes.");
-    }
-
-    TokenPair bestpair = count(ids);
-    TokenId new_id = initial_model.vocab.size();
-
-    while(merge_times > 0 && ids.size() >= 2 && bestpair != NO_PAIR){
-        model.merges[bestpair] = new_id;
-        id_to_bytes(model, bestpair);
-        bestpair = count_and_merge(ids, new_id, bestpair);
-        ++new_id;
-        --merge_times;
-    }
-    return model;
+Vocab BPETrainer::init_vocab(){
+    Vocab v(256);
+    for(int i = 0; i < 256; ++i) v[i].push_back(static_cast<Byte>(i));
+    return v;
 }
 
-BPEModel BPEtrainer::train_file(const std::string& path, int vocab_size, const BPEModel& initial_model){
+BPEModel BPETrainer::train(const std::string& text, std::size_t vocab_size){
+    vocab_ = init_vocab();
+    merges_.clear();
+    state_ = Trainstate{};
+
+    CountedPieces textpieces = pre_tokenize(text);
+    TokenPieces tokenpieces = text_to_token(textpieces);
+    train_merges(tokenpieces, vocab_size);
+
+    return BPEModel(std::move(vocab_), std::move(merges_));
+}
+
+BPEModel BPETrainer::train_file(const std::string& path, std::size_t vocab_size){
     std::string text = file_to_text(path);
-    return train(text, vocab_size, initial_model);
-
+    return train(text, vocab_size);
 }
 
-BPEModel BPEtrainer::base_model(){
-    BPEModel basemodel;
-    int i = 0;
-    while(i < 256){
-        basemodel.vocab.push_back({static_cast<unsigned char>(i)});
-        ++i;
+CountedPieces BPETrainer::pre_tokenize(const std::string& text){
+    return pretokenize_and_count(text);
+}
+
+TokenPieces BPETrainer::text_to_token(const CountedPieces& textpieces){
+    TokenPieces pieces;
+    pieces.reserve(textpieces.size());
+    ByteTokenizer Bt;
+    for(const auto& [text, frequency] : textpieces){
+        TokenPiece piece;
+        piece.ids = Bt.encode(text);
+        piece.frequency = frequency;
+        pieces.push_back(std::move(piece));
     }
-    return basemodel;
+    return pieces;
 }
 
-TokenPair BPEtrainer::count(const std::vector<int>& ids){
-    std::map<TokenPair, int> pair_count;
-    int max_count = 0;
-    TokenPair new_bestpair = NO_PAIR;
-    for(std::size_t i = 0; i + 1 < ids.size(); ++i){
-        TokenPair pair = {ids[i], ids[i + 1]};
-        int count = ++pair_count[pair];
-        if(count > max_count || (count == max_count && pair < new_bestpair)){
-            max_count = count; new_bestpair = pair;
+void BPETrainer::train_merges(TokenPieces& tokenpieces, std::size_t vocab_size){
+    init_state(tokenpieces);
+    while(vocab_.size() < vocab_size){
+        TokenPair best_pair = get_best_pair();
+        if(best_pair == NO_PAIR) break;
+        merge_once(tokenpieces, best_pair);
+    }
+}
+
+void BPETrainer::init_state(const TokenPieces& tokenpieces){
+    state_ = Trainstate{};
+
+    for(PieceId i = 0; i < tokenpieces.size(); ++i){
+        const TokenPiece& piece = tokenpieces[i];
+        for(std::size_t j = 0; j + 1 < piece.ids.size(); ++j){
+            TokenPair pair = {piece.ids[j], piece.ids[j + 1]};
+            PairInfo& info = state_.pair_info_map[pair];
+            info.count += piece.frequency;
+            info.pieces.insert(i);
         }
     }
-    return new_bestpair;
+
+    for(const auto& [pair, info] : state_.pair_info_map) state_.heap.push({info.count, pair});
 }
 
-TokenPair BPEtrainer::count_and_merge(std::vector<int>& ids, TokenId new_id, const TokenPair& bestpair){
-    std::map<TokenPair, int> pair_count;
-    int max_count = 0;
-    TokenPair new_bestpair = NO_PAIR;
+TokenPair BPETrainer::get_best_pair(){
+    while(!state_.heap.empty()){
+        auto [count, pair] = state_.heap.top();
+        auto it = state_.pair_info_map.find(pair);
+
+        if(it != state_.pair_info_map.end() && it->second.count == count){
+            state_.heap.pop();
+            if(count < 2) return NO_PAIR;
+            return pair;
+        }
+        state_.heap.pop();
+    }
+    return NO_PAIR;
+}
+
+void BPETrainer::merge_once(TokenPieces& tokenpieces,const TokenPair& best_pair){
+    PairInfo& info = state_.pair_info_map[best_pair];
+    TokenId new_id = static_cast<TokenId>(vocab_.size()); 
+    merges_.push_back({best_pair, new_id});
+    add_vocab_bytes(best_pair);
+
+    std::vector<PieceId> affected(info.pieces.begin(), info.pieces.end());
+    std::unordered_set<TokenPair, PairHash> touched_pairs;
+    for(auto& piece_id : affected){
+        TokenPiece& piece = tokenpieces[piece_id];
+        PairCounts old_counts = count_pairs(piece);
+        merge_piece(piece, new_id, best_pair);
+        PairCounts new_counts = count_pairs(piece);
+        update_state(piece_id, piece, old_counts, new_counts, touched_pairs);
+    }
+    state_.pair_info_map.erase(best_pair);
+    refresh_heap(touched_pairs);
+}
+
+void BPETrainer::add_vocab_bytes(const TokenPair& pair){
+    Bytes bytes = vocab_[pair.first];
+    bytes.insert(bytes.end(), vocab_[pair.second].begin(), vocab_[pair.second].end());
+    vocab_.push_back(std::move(bytes));
+}
+
+void BPETrainer::merge_piece(TokenPiece& piece, TokenId new_id, const TokenPair& best_pair){
     std::size_t read = 0, write = 0;
-    while(read < ids.size()){
-        if(read + 1 < ids.size() && TokenPair{ids[read], ids[read + 1]} == bestpair){
-            ids[write++] = new_id;
+    while(read < piece.ids.size()){
+        if(read + 1 < piece.ids.size() &&
+            piece.ids[read] == best_pair.first && 
+            piece.ids[read + 1] == best_pair.second){                   
+            piece.ids[write++] = new_id;
             read += 2;
         }else{
-            ids[write++] = ids[read++];
-        }
-        if (write >= 2){
-            TokenPair pair = {ids[write - 2], ids[write - 1]};
-            int count = ++pair_count[pair];
-            if(count > max_count || (count == max_count && pair < new_bestpair)){
-                max_count = count; new_bestpair = pair;
-            }
-        }
+            piece.ids[write++] = piece.ids[read++];
+        }   
     }
-    ids.resize(write);
-    return new_bestpair;
+    piece.ids.resize(write);
 }
 
-void BPEtrainer::id_to_bytes(BPEModel& model, const TokenPair& pair){
-    std::vector<unsigned char> bytes = model.vocab[pair.first];
-    bytes.insert(bytes.end(), model.vocab[pair.second].begin(), model.vocab[pair.second].end());
-    model.vocab.push_back(std::move(bytes));
+PairCounts BPETrainer::count_pairs(const TokenPiece& piece){
+    PairCounts counts;
+    for(std::size_t index = 0; index + 1 < piece.ids.size(); ++index){
+        TokenPair pair = {piece.ids[index], piece.ids[index + 1]};
+        ++counts[pair];
+    }
+    return counts;
 }
 
-std::vector<int> BPEtrainer::texts_to_ids(const std::string& text){
-    ByteTokenizer Bt;
-    std::vector<int> ids = Bt.encode(text);
-    return ids;
+void BPETrainer::update_state(PieceId piece_id, TokenPiece& piece, PairCounts& old_counts, PairCounts& new_counts, TokenPairs& touched_pairs){
+    for(auto& [pair, count] : old_counts){
+        PairInfo& info = state_.pair_info_map.at(pair);
+        info.count -= piece.frequency * count;
+        info.pieces.erase(piece_id);
+        touched_pairs.insert(pair);
+    }
+    for(auto& [pair, count] : new_counts){
+        PairInfo& info = state_.pair_info_map[pair];
+        info.count += piece.frequency * count;
+        info.pieces.insert(piece_id);
+        touched_pairs.insert(pair);
+    }
 }
 
-std::string BPEtrainer::file_to_text(const std::string& path){
+void BPETrainer::refresh_heap(TokenPairs& touched_pairs){
+    for(const TokenPair& pair : touched_pairs){
+        auto it = state_.pair_info_map.find(pair);
+        if (it != state_.pair_info_map.end() && it->second.count > 0)
+            state_.heap.push({it->second.count, pair});
+    }
+}
+
+std::string BPETrainer::file_to_text(const std::string& path){
     std::ifstream file(path, std::ios::binary);
     if(!file){throw std::runtime_error("Failed to open file: " + path);}
     std::string text(std::istreambuf_iterator<char>{file}, std::istreambuf_iterator<char>{});

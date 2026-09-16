@@ -1,2 +1,5 @@
 /build/
 /data/*
+design.md
+/benchmarks/perf/raw/
+perf.data
