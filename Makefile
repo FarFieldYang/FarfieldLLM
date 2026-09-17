@@ -1,6 +1,13 @@
 CXX := g++
-CXXFLAGS := -std=c++20 -O2 -g -fno-omit-frame-pointer -Wall -Wextra -pedantic -Itokenizer
 
+CXXFLAGS := -std=c++20 -O2 -g -fno-omit-frame-pointer -Wall -Wextra -pedantic \
+	-Itokenizer \
+	-Itensor
+
+
+# =========================
+# Targets
+# =========================
 
 TARGET := build/test_bpe_trainer_v2
 STRESS_TARGET := build/test_bpe_stress_v2
@@ -9,6 +16,12 @@ ENWIK8_TARGET := build/test_bpe_enwik8_benchmark
 TOKENIZER_TARGET := build/test_bpe_tokenizer_v2
 ENCODE_TARGET := build/bpe_encode_benchmark
 
+TENSOR_TARGET := build/test_tensor
+
+
+# =========================
+# Tokenizer Sources
+# =========================
 
 COMMON_SRC := \
 	tokenizer/bpe_trainer.cpp \
@@ -49,8 +62,25 @@ ENCODE_SRC := \
 	benchmarks/tokenizer/encode.cpp
 
 
-all: $(TARGET)
+# =========================
+# Tensor Sources
+# =========================
 
+TENSOR_SRC := \
+	tensor/tensor.cpp \
+	tests/test_tensor.cpp
+
+
+# =========================
+# Default
+# =========================
+
+all: $(TARGET) $(TENSOR_TARGET)
+
+
+# =========================
+# BPE Trainer
+# =========================
 
 $(TARGET): $(SOURCES)
 	mkdir -p build
@@ -60,6 +90,10 @@ run: $(TARGET)
 	./$(TARGET)
 
 
+# =========================
+# BPE Stress Benchmark
+# =========================
+
 $(STRESS_TARGET): $(STRESS_SRC)
 	mkdir -p build
 	$(CXX) $(CXXFLAGS) $(STRESS_SRC) -o $(STRESS_TARGET)
@@ -67,6 +101,10 @@ $(STRESS_TARGET): $(STRESS_SRC)
 stress: $(STRESS_TARGET)
 	./$(STRESS_TARGET)
 
+
+# =========================
+# CS336 Benchmark
+# =========================
 
 $(CS336_TARGET): $(CS336_SRC)
 	mkdir -p build
@@ -76,6 +114,10 @@ cs336: $(CS336_TARGET)
 	./$(CS336_TARGET)
 
 
+# =========================
+# enwik8 Benchmark
+# =========================
+
 $(ENWIK8_TARGET): $(ENWIK8_SRC)
 	mkdir -p build
 	$(CXX) $(CXXFLAGS) $(ENWIK8_SRC) -o $(ENWIK8_TARGET)
@@ -83,6 +125,10 @@ $(ENWIK8_TARGET): $(ENWIK8_SRC)
 enwik8: $(ENWIK8_TARGET)
 	./$(ENWIK8_TARGET)
 
+
+# =========================
+# BPE Tokenizer
+# =========================
 
 $(TOKENIZER_TARGET): $(TOKENIZER_SRC)
 	mkdir -p build
@@ -92,6 +138,10 @@ tokenizer: $(TOKENIZER_TARGET)
 	./$(TOKENIZER_TARGET)
 
 
+# =========================
+# Encode Benchmark
+# =========================
+
 $(ENCODE_TARGET): $(ENCODE_SRC)
 	mkdir -p build
 	$(CXX) $(CXXFLAGS) $(ENCODE_SRC) -o $(ENCODE_TARGET)
@@ -100,8 +150,24 @@ encode: $(ENCODE_TARGET)
 	./$(ENCODE_TARGET)
 
 
+# =========================
+# Tensor
+# =========================
+
+$(TENSOR_TARGET): $(TENSOR_SRC) tensor/tensor.h
+	mkdir -p build
+	$(CXX) $(CXXFLAGS) $(TENSOR_SRC) -o $(TENSOR_TARGET)
+
+tensor: $(TENSOR_TARGET)
+	./$(TENSOR_TARGET)
+
+
+# =========================
+# Clean
+# =========================
+
 clean:
 	rm -rf build
 
 
-.PHONY: all run stress cs336 enwik8 tokenizer encode clean
+.PHONY: all run stress cs336 enwik8 tokenizer encode tensor clean
