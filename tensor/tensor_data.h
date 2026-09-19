@@ -4,21 +4,7 @@
 #include <cstddef>
 #include <memory>
 
-using Scalar = float;
-using Scalars = std::vector<Scalar>;
-
-class Storage {
-private:
-    std::vector<Scalar> data_;
-
-public:
-    explicit Storage(Scalars data);
-
-    Scalar& at(std::size_t index);
-    const Scalar& at(std::size_t index) const;
-
-    std::size_t size() const;
-};
+#include "storage.h"
 
 class TensorData {
 public:

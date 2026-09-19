@@ -4,21 +4,6 @@
 
 #include "tensor_data.h"
 
-//Storage
-Storage::Storage(Scalars data): data_(std::move(data)){}
-
-Scalar& Storage::at(std::size_t index){
-    return data_.at(index);
-}
-const Scalar& Storage::at(std::size_t index) const{
-    return data_.at(index);
-}
-
-std::size_t Storage::size() const{
-    return data_.size();
-}
-
-//TensorData
 //public
 TensorData::TensorData(std::vector<std::size_t> shape, Scalars scalars){
     shape_ = std::move(shape);
