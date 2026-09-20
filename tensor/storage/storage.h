@@ -7,12 +7,13 @@
 
 using Scalar = float;
 using Scalars = std::vector<Scalar>;
+using Size = std::size_t;
 
 class Storage {
 public:
     virtual ~Storage() = default;
 
-    virtual std::size_t size() const = 0;
+    virtual Size size() const = 0;
     virtual Device device() const = 0;
 
     virtual void* raw_data() = 0;
@@ -21,13 +22,13 @@ public:
 
 class CPUStorage : public Storage{
 private:
-    std::vector<Scalar> data_;
+    Scalars data_;
     Device device_;
 
 public:
-    explicit CPUStorage(std::size_t size, Device device);
+    explicit CPUStorage(Size size, Device device);
 
-    std::size_t size() const override;
+    Size size() const override;
     Device device() const override;
 
     void* raw_data() override;
@@ -37,14 +38,17 @@ public:
 class GPUStorage : public Storage {
 private:
     Scalar* data_;
-    std::size_t size_;
+    Size size_;
     Device device_;
 
 public:
-    GPUStorage(std::size_t size, Device device);
+    GPUStorage(Size size, Device device);
     ~GPUStorage() override;
 
-    std::size_t size() const override;
+    GPUStorage(const GPUStorage&) = delete;
+    GPUStorage& operator=(const GPUStorage&) = delete;
+
+    Size size() const override;
     Device device() const override;
 
     void* raw_data() override;

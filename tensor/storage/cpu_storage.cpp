@@ -1,14 +1,18 @@
 #include "storage.h"
 //CPUStorage
-CPUStorage::CPUStorage(Scalars data): data_(std::move(data)){}
+CPUStorage::CPUStorage(Size size, Device device): data_(size), device_(device){}
 
-Scalar& CPUStorage::at(std::size_t index){
-    return data_.at(index);
-}
-const Scalar& CPUStorage::at(std::size_t index) const{
-    return data_.at(index);
-}
-
-std::size_t CPUStorage::size() const{
+Size CPUStorage::size() const{
     return data_.size();
+}
+
+Device CPUStorage::device() const{
+    return device_;
+}
+
+void* CPUStorage::raw_data(){
+    return data_.data();
+}
+const void* CPUStorage::raw_data() const {
+    return data_.data();
 }
