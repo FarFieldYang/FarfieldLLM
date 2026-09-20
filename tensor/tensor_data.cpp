@@ -29,38 +29,6 @@ const std::vector<std::size_t>& TensorData::shape() const{
     return shape_;
 }
 
-const Scalar& TensorData::at(const std::vector<std::size_t>& position) const{
-    if (position.size() != shape_.size()) {
-        throw std::invalid_argument("TensorData index dimension mismatch");
-    }
-
-    std::size_t offset = 0;
-    for(std::size_t i = 0; i < shape_.size(); ++i){
-        if (position[i] >= shape_[i]) {
-            throw std::out_of_range("TensorData index out of range");
-        }
-
-        offset += position[i] * strides_[i];
-    }
-    return storage_->at(offset + offset_);
-}
-
-Scalar& TensorData::at(const std::vector<std::size_t>& position){
-    if (position.size() != shape_.size()) {
-        throw std::invalid_argument("TensorData index dimension mismatch");
-    }
-
-    std::size_t offset = 0;
-    for(std::size_t i = 0; i < shape_.size(); ++i){
-        if (position[i] >= shape_[i]) {
-            throw std::out_of_range("TensorData index out of range");
-        }
-
-        offset += position[i] * strides_[i];
-    }
-    return storage_->at(offset + offset_);
-}
-
 //private
 TensorData::TensorData(
     std::shared_ptr<Storage> storage,

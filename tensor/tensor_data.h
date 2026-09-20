@@ -1,48 +1,55 @@
 #pragma once
 
 #include <vector>
-#include <cstddef>
 #include <memory>
 
 #include "storage.h"
 
+using Shape = std::vector<std::size_t>;
+using Strides = std::vector<std::size_t>;
+using Index = std::vector<std::size_t>;
+using Offset = std::size_t;
+
 class TensorData {
 public:
-    TensorData(std::vector<std::size_t> shape, Scalars scalars);
+    TensorData(std::shared_ptr<Storage> storage, Shape shape);
+    TensorData(
+    std::shared_ptr<Storage> storage,
+    Shape shape,
+    Strides strides,
+    Offset offset = 0
+    );
+    Device device() const;
 
-    
-    std::size_t size() const;
+    std::size_t numel() const;
     std::size_t ndim() const;
-    const std::vector<std::size_t>& shape() const;
+    const Shape& shape() const;
+    const Strides& strides() const;
+    Offset offset() const;
+    bool is_contiguous() const;
     
-    const Scalar& at(const std::vector<std::size_t>& position) const;
-    Scalar& at(const std::vector<std::size_t>& position);
+    Storage& storage();
+    const Storage& storage() const;
 
 private:
     std::shared_ptr<Storage> storage_;
-    std::vector<std::size_t> shape_;
-    std::vector<std::size_t> strides_;
+    Shape shape_;
+    Strides strides_;
     std::size_t offset_ = 0;
     std::size_t numel_;
 
-    TensorData(
-    std::shared_ptr<Storage> storage,
-    std::vector<std::size_t> shape,
-    std::vector<std::size_t> strides,
-    std::size_t offset = 0
-    );
     
     void compute_strides();
     void compute_size();
 
-    static std::vector<std::size_t> broadcast_shape(
-        const std::vector<std::size_t>& a,
-        const std::vector<std::size_t>& b
+    static Shape broadcast_shape(
+        const Shape& a,
+        const Shape& b
     );
 
-    static std::vector<std::size_t> broadcast_index(
-        const std::vector<std::size_t>& out_index,
-        const std::vector<std::size_t>& in_shape
+    static Index broadcast_index(
+        const Index& out_index,
+        const Index& in_shape
     );
 };
 
