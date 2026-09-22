@@ -1,13 +1,16 @@
-#include "storage.h"
-
 #include <cuda_runtime.h>
 #include <stdexcept>
 #include <string>
 
+#include "storage.h"
+
 GPUStorage::GPUStorage(Size size, Device device): data_(nullptr), size_(size), device_(device){
-    if (device_.type != DeviceType::GPU) throw std::invalid_argument("GPUStorage requires GPU device");
+    if (device_.type != DeviceType::GPU) 
+        throw std::invalid_argument("GPUStorage requires GPU device");
+    if (size_ == 0) return;
     cudaError_t err = cudaMalloc(reinterpret_cast<void**>(&data_), size_ * sizeof(Scalar));
-    if(err != cudaSuccess) throw std::runtime_error(std::string("cudaMalloc failed: ") + cudaGetErrorString(err));
+    if(err != cudaSuccess) 
+        throw std::runtime_error(std::string("cudaMalloc failed: ") + cudaGetErrorString(err));
 }
 
 GPUStorage::~GPUStorage(){

@@ -1,5 +1,4 @@
 #include "tensor.h"
-#include "autograd_meta.h"
 
 Tensor Tensor::operator+(const Tensor& other) const{
 
