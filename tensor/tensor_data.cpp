@@ -150,22 +150,104 @@ TensorData TensorData::unsqueeze(Dim dim) const{
 }
 
 TensorData TensorData::squeeze(Dim dim) const{
+    if(dim >= shape_.size())
+        throw std::out_of_range("squeeze dimension out of range");
+    if(shape_[dim] != 1)
+        throw std::invalid_argument("squeeze requires dimension size 1");
 
+    Shape shape = shape_;
+    Strides strides = strides_;
+
+    shape.erase(shape.begin() + dim);
+    strides.erase(strides.begin() + dim);
+    return TensorData(
+        storage_,
+        shape,
+        strides,
+        offset_
+    );
 }
+
 TensorData TensorData::broadcast_to(const Shape& new_shape) const{
+    if (broadcast_shape(shape_, new_shape) != new_shape)
+        throw std::invalid_argument("cannot broadcast to target shape");
 
+    Strides strides(new_shape.size(), 0);
+    Index old_i = shape_.size();
+    Index new_i = new_shape.size();
+    while(old_i > 0){
+        --old_i;
+        --new_i;
+        
+        if(shape_[old_i] == new_shape[new_i]) strides[new_i] = strides_[old_i];
+        else if(shape_[old_i] == 1){
+            strides[new_i] = 0;
+        }
+    }
+    return TensorData(
+        storage_,
+        new_shape,
+        strides,
+        offset_
+    );
 }
+
 TensorData TensorData::narrow(Dim dim, Index start, std::size_t length) const{
+    if (dim >= shape_.size())
+        throw std::out_of_range("narrow dimension out of range");
+    if (start > shape_[dim] || length > shape_[dim] - start)
+        throw std::out_of_range("narrow range out of bounds");
 
+    return slice(dim, start, start + length, 1);
 }
+
 TensorData TensorData::slice(Dim dim, Index start, Index end, std::size_t step) const{
+    if (dim >= shape_.size())
+        throw std::out_of_range("slice dimension out of range");
+    if (step == 0)
+        throw std::invalid_argument("slice step cannot be zero");
+    if (start > end)
+        throw std::invalid_argument("slice start cannot be greater than end");
+    if (end > shape_[dim])
+        throw std::out_of_range("slice end out of range");
 
+    Shape shape = shape_;
+    Strides strides = strides_;
+    Offset offset = offset_ + start * strides_[dim];
+    strides[dim] *= step; 
+    std::size_t span = end - start;
+    shape[dim] = span == 0 ? 0 : 1 + (span - 1) / step;
+    return TensorData(
+        storage_,
+        shape,
+        strides,
+        offset
+    );
 }
+
 TensorData TensorData::select(Dim dim, Index index) const{
+    if (dim >= shape_.size())
+        throw std::out_of_range("select dimension out of range");
+    if (index >= shape_[dim])
+        throw std::out_of_range("select index out of range");
 
+    Shape shape = shape_;
+    Strides strides = strides_;
+
+    Offset offset = offset_ + index * strides_[dim];
+    shape.erase(shape.begin() + dim);
+    strides.erase(strides.begin() + dim);
+
+    return TensorData(
+        storage_,
+        shape,
+        strides,
+        offset
+    );
 }
-TensorData TensorData::flatten() const{
 
+TensorData TensorData::flatten() const{
+    return reshape({numel_});
 }
 //private
 
@@ -189,12 +271,12 @@ void TensorData::compute_numel(){
     }
 }
 
-std::vector<std::size_t> TensorData::broadcast_shape(
-    const std::vector<std::size_t>& a,
-    const std::vector<std::size_t>& b
+Shape TensorData::broadcast_shape(
+    const Shape& a,
+    const Shape& b
 ){
     std::size_t na = a.size(), nb = b.size();
-    std::vector<std::size_t> result;
+    Shape result;
     result.resize(std::max(na, nb));
     int imax = static_cast<int>(result.size()) - 1;
 
