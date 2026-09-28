@@ -22,6 +22,13 @@ private:
     Offset offset_ = 0;
     Numel numel_;
 
+    TensorData(
+    std::shared_ptr<Storage> storage,
+    Shape shape,
+    Strides strides,
+    Offset offset = 0
+    );
+
     static Strides compute_contiguous_strides(const Shape& shape);
     void compute_numel();
 
@@ -31,12 +38,7 @@ private:
     );
 public:
     TensorData(std::shared_ptr<Storage> storage, Shape shape);
-    TensorData(
-    std::shared_ptr<Storage> storage,
-    Shape shape,
-    Strides strides,
-    Offset offset = 0
-    );
+
     Device device() const;
 
     Numel numel() const;

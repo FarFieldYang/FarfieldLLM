@@ -21,6 +21,9 @@ public:
     Tensor operator*(Scalar scalar) const;
     Tensor sum() const;
 
+    Tensor exp() const;
+
+
     void backward();
 };
 

@@ -5,7 +5,8 @@
 #include "tensor_data.h"
 
 //public
-TensorData::TensorData(std::shared_ptr<Storage> storage, Shape shape):shape_(std::move(shape)), storage_(storage){
+TensorData::TensorData(std::shared_ptr<Storage> storage, Shape shape):
+    storage_(std::move(storage)), shape_(std::move(shape)) {
     if (!storage_)
         throw std::invalid_argument("TensorData storage cannot be null");
     
@@ -14,24 +15,6 @@ TensorData::TensorData(std::shared_ptr<Storage> storage, Shape shape):shape_(std
 
     if(numel_ != storage_->size())
         throw std::invalid_argument("TensorData shape does not match data size");
-}
-
-TensorData::TensorData(
-    std::shared_ptr<Storage> storage,
-    Shape shape,
-    Strides strides,
-    Offset offset
-):
-    storage_(std::move(storage)),
-    shape_(std::move(shape)),
-    strides_(std::move(strides)),
-    offset_(offset){
-    if (!storage_)
-        throw std::invalid_argument("TensorData storage cannot be null");
-
-    if (shape_.size() != strides_.size())
-        throw std::invalid_argument("TensorData shape and strides dimension mismatch");
-    compute_numel();
 }
 
 Device TensorData::device() const {
@@ -249,7 +232,27 @@ TensorData TensorData::select(Dim dim, Index index) const{
 TensorData TensorData::flatten() const{
     return reshape({numel_});
 }
+
 //private
+TensorData::TensorData(
+    std::shared_ptr<Storage> storage,
+    Shape shape,
+    Strides strides,
+    Offset offset
+):
+    storage_(std::move(storage)),
+    shape_(std::move(shape)),
+    strides_(std::move(strides)),
+    offset_(offset){
+    if (!storage_)
+        throw std::invalid_argument("TensorData storage cannot be null");
+
+    if (shape_.size() != strides_.size())
+        throw std::invalid_argument("TensorData shape and strides dimension mismatch");
+
+    
+    compute_numel();
+}
 
 Strides TensorData::compute_contiguous_strides(const Shape& shape){
     Strides strides(shape.size());
