@@ -57,6 +57,7 @@ namespace {
         }
         return position;
     }
+
 //binary
     template <BinaryOp Op>
     __device__ Scalar apply_binary(Scalar x, Scalar y){
@@ -142,6 +143,7 @@ namespace {
         
         unary_kernel<Op><<<blocks, BLOCK_SIZE>>>(input_ptr, output_ptr, n, meta);
     }
+
 //reduction
     template <ReduceOp Op>
     __device__ Scalar apply_reduce(Scalar x, Scalar y){
@@ -214,6 +216,28 @@ namespace {
         if(n == 0) return;
         reduce_kernel<Op><<<static_cast<int>(n), BLOCK_SIZE>>>(input_ptr, output_ptr, meta, dim);
     }
+
+//TensorData Backend
+    __global__ void contiguous_kernel(const Scalar* input, Scalar* output, Numel n, TensorMeta meta){
+        Index i = static_cast<Index>(blockIdx.x) * blockDim.x + threadIdx.x;
+        if(i < n) output[i] = input[index_to_position(i, meta)];
+    }
+
+    void launch_contiguous(const TensorData& input, TensorData& output){
+        const Scalar* input_ptr = 
+            static_cast<const Scalar*>(input.storage().raw_data())
+            + input.offset();
+        Scalar* output_ptr = 
+            static_cast<Scalar*>(output.storage().raw_data())
+            + output.offset(); 
+        Numel n = output.numel();
+        TensorMeta meta = make_meta(input);
+
+        if(n == 0) return;
+        int blocks = static_cast<int>((n + BLOCK_SIZE - 1) / BLOCK_SIZE);
+        
+        contiguous_kernel<<<blocks, BLOCK_SIZE>>>(input_ptr, output_ptr, n, meta);
+    }
 } //namespace
 
 
@@ -259,5 +283,10 @@ namespace cuda_backend {
 
     void max(const TensorData& input, TensorData& output, Dim dim){
         launch_reduce<ReduceOp::Max>(input, output, dim);
-    }       
+    }
+    
+//TensorData Backend
+    void contiguous(const TensorData& input, TensorData& output){
+    launch_contiguous(input, output);
+    }
 }

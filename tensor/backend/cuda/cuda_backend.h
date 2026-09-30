@@ -21,4 +21,7 @@ void max(const TensorData& input, TensorData& output, Dim dim);
 
 //matrix
 void matmul(const TensorData& input1, const TensorData& input2, TensorData& output);
+
+//TensorData Backend
+void contiguous(const TensorData& input, TensorData& output);
 }
