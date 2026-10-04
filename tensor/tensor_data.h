@@ -39,8 +39,6 @@ private:
 public:
     TensorData(std::shared_ptr<Storage> storage, Shape shape);
 
-    Device device() const;
-
     Numel numel() const;
     std::size_t ndim() const;
     const Shape& shape() const;

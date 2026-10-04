@@ -4,9 +4,7 @@
 
 #include "storage.h"
 
-GPUStorage::GPUStorage(Size size, Device device): data_(nullptr), size_(size), device_(device){
-    if (device_.type != DeviceType::GPU) 
-        throw std::invalid_argument("GPUStorage requires GPU device");
+GPUStorage::GPUStorage(Size size): data_(nullptr), size_(size){
     if (size_ == 0) return;
     cudaError_t err = cudaMalloc(reinterpret_cast<void**>(&data_), size_ * sizeof(Scalar));
     if(err != cudaSuccess) 
@@ -19,9 +17,6 @@ GPUStorage::~GPUStorage(){
 
 Size GPUStorage::size() const{
     return size_;
-}
-Device GPUStorage::device() const{
-    return device_;
 }
 
 void* GPUStorage::raw_data(){

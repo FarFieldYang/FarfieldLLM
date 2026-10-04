@@ -22,10 +22,7 @@ void expect_throw(Fn fn) {
 
 
 std::shared_ptr<Storage> make_cpu_storage(std::size_t size) {
-    return std::make_shared<CPUStorage>(
-        size,
-        Device{DeviceType::CPU, 0}
-    );
+    return std::make_shared<CPUStorage>(size);
 }
 
 
@@ -33,8 +30,6 @@ void test_cpu_storage() {
     auto storage = make_cpu_storage(4);
 
     assert(storage->size() == 4);
-    assert(storage->device().type == DeviceType::CPU);
-    assert(storage->device().index == 0);
     assert(storage->raw_data() != nullptr);
 
     auto* data = static_cast<Scalar*>(storage->raw_data());
@@ -62,8 +57,6 @@ void test_basic_tensor_data() {
 
     assert(t.offset() == 0);
     assert(t.is_contiguous());
-
-    assert(t.device().type == DeviceType::CPU);
 
     // TensorData should reference the same Storage.
     assert(&t.storage() == storage.get());

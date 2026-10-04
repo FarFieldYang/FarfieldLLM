@@ -1,6 +1,7 @@
 #include <cuda_runtime.h>
 #include <stdexcept>
 #include <string>
+#include <cublasLt.h>
 
 #include "cuda_backend.h"
 
@@ -217,6 +218,217 @@ namespace {
         reduce_kernel<Op><<<static_cast<int>(n), BLOCK_SIZE>>>(input_ptr, output_ptr, meta, dim);
     }
 
+//matrix
+    cublasLtHandle_t get_handle(){
+        static cublasLtHandle_t handle = []{
+            cublasLtHandle_t h;
+            cublasLtCreate(&h);
+            return h;
+        }();
+        return handle;
+    }
+
+    class MatrixLayout {
+    private:
+        cublasLtMatrixLayout_t desc_{};
+
+    public:
+        MatrixLayout(Index rows, Index cols) {
+            cublasStatus_t status = cublasLtMatrixLayoutCreate(
+                &desc_,
+                CUDA_R_32F,
+                rows,
+                cols,
+                cols
+            );
+
+            if (status != CUBLAS_STATUS_SUCCESS)
+                throw std::runtime_error(
+                    "Failed to create cuBLASLt matrix layout"
+                );
+
+            cublasLtOrder_t order = CUBLASLT_ORDER_ROW;
+
+            status = cublasLtMatrixLayoutSetAttribute(
+                desc_,
+                CUBLASLT_MATRIX_LAYOUT_ORDER,
+                &order,
+                sizeof(order)
+            );
+
+            if (status != CUBLAS_STATUS_SUCCESS) {
+                cublasLtMatrixLayoutDestroy(desc_);
+                desc_ = nullptr;
+
+                throw std::runtime_error(
+                    "Failed to set cuBLASLt matrix layout order"
+                );
+            }
+        }
+
+        ~MatrixLayout() {
+            if (desc_)
+                cublasLtMatrixLayoutDestroy(desc_);
+        }
+
+        MatrixLayout(const MatrixLayout&) = delete;
+        MatrixLayout& operator=(const MatrixLayout&) = delete;
+
+        cublasLtMatrixLayout_t get() const {
+            return desc_;
+        }
+
+        void set_batch(int32_t batch_count, int64_t batch_stride) {
+            cublasStatus_t status = cublasLtMatrixLayoutSetAttribute(
+                desc_,
+                CUBLASLT_MATRIX_LAYOUT_BATCH_COUNT,
+                &batch_count,
+                sizeof(batch_count)
+            );
+
+            if (status != CUBLAS_STATUS_SUCCESS)
+                throw std::runtime_error("Failed to set batch count");
+
+            status = cublasLtMatrixLayoutSetAttribute(
+                desc_,
+                CUBLASLT_MATRIX_LAYOUT_STRIDED_BATCH_OFFSET,
+                &batch_stride,
+                sizeof(batch_stride)
+            );
+
+            if (status != CUBLAS_STATUS_SUCCESS)
+                throw std::runtime_error("Failed to set batch stride");
+        }
+    };
+
+    class MatmulDesc {
+    private:
+        cublasLtMatmulDesc_t desc_{};
+
+    public:
+        MatmulDesc() {
+            cublasStatus_t status = cublasLtMatmulDescCreate(
+                &desc_,
+                CUBLAS_COMPUTE_32F,
+                CUDA_R_32F
+            );
+
+            if (status != CUBLAS_STATUS_SUCCESS)
+                throw std::runtime_error(
+                    "Failed to create cuBLASLt matmul descriptor"
+                );
+        }
+
+        ~MatmulDesc() {
+            if (desc_)
+                cublasLtMatmulDescDestroy(desc_);
+        }
+
+        MatmulDesc(const MatmulDesc&) = delete;
+        MatmulDesc& operator=(const MatmulDesc&) = delete;
+
+        cublasLtMatmulDesc_t get() const {
+            return desc_;
+        }
+    };
+
+    int32_t compute_batch_count(
+        const Shape& a_shape,
+        const Shape& b_shape,
+        std::size_t rank
+    ) {
+        int32_t batch_count = 1;
+
+        for (std::size_t d = 0; d < rank - 2; ++d) {
+            if (a_shape[d] != b_shape[d])
+                throw std::invalid_argument("Matmul batch shapes must match");
+            batch_count *= static_cast<int32_t>(a_shape[d]);
+        }
+
+        return batch_count;
+    }
+
+    void launch_matmul(const TensorData& input1, const TensorData& input2, TensorData& output){
+        if(input1.ndim() < 2 || input2.ndim() != input1.ndim())
+            throw std::invalid_argument("Matmul input ranks must match and be >= 2");
+        if(!input1.is_contiguous()
+            || !input2.is_contiguous()
+            || !output.is_contiguous())
+            throw std::invalid_argument("Matmul requires contiguous tensors ");
+
+        std::size_t ndim = input1.ndim();
+        Index M = input1.shape()[ndim - 2];
+        Index K = input1.shape()[ndim - 1];
+        Index N = input2.shape()[ndim - 1];
+
+        if(input2.shape()[ndim - 2] != K)
+            throw std::invalid_argument("Matmul inner dimensions must match");
+
+        Shape expected_output_shape = input1.shape();
+        expected_output_shape[ndim - 1] = N;
+        if(output.shape() != expected_output_shape)
+            throw std::invalid_argument("Matmul output shape mismatch");
+
+        const Scalar* input_ptr1 =
+            static_cast<const Scalar*>(input1.storage().raw_data())
+            + input1.offset();
+
+        const Scalar* input_ptr2 =
+            static_cast<const Scalar*>(input2.storage().raw_data())
+            + input2.offset();
+
+        Scalar* output_ptr =
+            static_cast<Scalar*>(output.storage().raw_data())
+            + output.offset();
+
+        cublasLtHandle_t handle = get_handle();
+        MatmulDesc op_desc;    
+        MatrixLayout input1_desc(M, K);
+        MatrixLayout input2_desc(K, N);
+        MatrixLayout output_desc(M, N);
+
+        int32_t batch_count = compute_batch_count(input1.shape(), input2.shape(), ndim);
+        int64_t input1_batch_stride = static_cast<int64_t>(M) * K;
+        int64_t input2_batch_stride = static_cast<int64_t>(K) * N;
+        int64_t output_batch_stride = static_cast<int64_t>(M) * N;               
+        if(batch_count > 1){
+        input1_desc.set_batch(batch_count, input1_batch_stride);
+        input2_desc.set_batch(batch_count, input2_batch_stride);
+        output_desc.set_batch(batch_count, output_batch_stride);
+        }
+
+        Scalar alpha = 1.0f;
+        Scalar beta = 0.0f;
+
+        cublasStatus_t status = cublasLtMatmul(
+            handle,
+            op_desc.get(),
+
+            &alpha,
+
+            input_ptr1,
+            input1_desc.get(),
+
+            input_ptr2,
+            input2_desc.get(),
+            
+            &beta,
+
+            output_ptr,
+            output_desc.get(),
+
+            output_ptr,
+            output_desc.get(),
+
+            nullptr,
+            nullptr,
+            0,
+            nullptr
+        );
+        if(status != CUBLAS_STATUS_SUCCESS)
+            throw std::runtime_error("cuBLASLt matmul failed");
+    }
+
 //TensorData Backend
     __global__ void contiguous_kernel(const Scalar* input, Scalar* output, Numel n, TensorMeta meta){
         Index i = static_cast<Index>(blockIdx.x) * blockDim.x + threadIdx.x;
@@ -283,6 +495,11 @@ namespace cuda_backend {
 
     void max(const TensorData& input, TensorData& output, Dim dim){
         launch_reduce<ReduceOp::Max>(input, output, dim);
+    }
+
+//matrix
+    void matmul(const TensorData& input1, const TensorData& input2, TensorData& output){
+        launch_matmul(input1, input2, output);
     }
     
 //TensorData Backend

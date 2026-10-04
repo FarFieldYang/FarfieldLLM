@@ -17,10 +17,6 @@ TensorData::TensorData(std::shared_ptr<Storage> storage, Shape shape):
         throw std::invalid_argument("TensorData shape does not match data size");
 }
 
-Device TensorData::device() const {
-    return storage_->device();
-}
-
 Numel TensorData::numel() const{
     return numel_;
 }

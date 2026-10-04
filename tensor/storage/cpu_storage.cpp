@@ -2,17 +2,10 @@
 
 #include "storage.h"
 //CPUStorage
-CPUStorage::CPUStorage(Size size, Device device): data_(size), device_(device){
-    if (device_.type != DeviceType::CPU)
-        throw std::invalid_argument("CPUStorage requires CPU device");
-}
+CPUStorage::CPUStorage(Size size): data_(size){}
 
 Size CPUStorage::size() const{
     return data_.size();
-}
-
-Device CPUStorage::device() const{
-    return device_;
 }
 
 void* CPUStorage::raw_data(){
