@@ -9,6 +9,12 @@ void sub(const TensorData& input1, const TensorData& input2, TensorData& output)
 void mul(const TensorData& input1, const TensorData& input2, TensorData& output);
 void div(const TensorData& input1, const TensorData& input2, TensorData& output);
 
+//scalar_backend
+void add(const TensorData& input, Scalar scalar, TensorData& output);
+void sub(const TensorData& input, Scalar scalar, TensorData& output);
+void mul(const TensorData& input, Scalar scalar, TensorData& output);
+void div(const TensorData& input, Scalar scalar, TensorData& output);
+
 //unary
 void exp(const TensorData& input, TensorData& output);
 void log(const TensorData& input, TensorData& output);

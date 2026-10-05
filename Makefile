@@ -51,9 +51,10 @@ TENSOR_DATA_TARGET := $(BUILD_DIR)/test_tensor_data
 
 CUDA_STORAGE_OBJ := $(BUILD_DIR)/cuda_storage.o
 CUDA_BACKEND_TARGET := $(BUILD_DIR)/test_cuda_backend
+TENSOR_TARGET := $(BUILD_DIR)/test_tensor
 
 # ============================================================
-# Tokenizer sources and headers
+# Tokenizer
 # ============================================================
 
 TOKENIZER_HEADERS := $(wildcard tokenizer/*.h)
@@ -91,7 +92,7 @@ BPE_ENCODE_SRC := \
 	benchmarks/tokenizer/encode.cpp
 
 # ============================================================
-# TensorData sources and headers
+# TensorData
 # ============================================================
 
 TENSOR_DATA_HEADERS := \
@@ -104,21 +105,39 @@ TENSOR_DATA_SRC := \
 	tests/test_tensor_data.cpp
 
 # ============================================================
-# CUDA backend sources and headers
+# CUDA backend
 # ============================================================
+
+CUDA_COMMON_SRC := \
+	tensor/storage/cuda_storage.cu \
+	tensor/tensor_data.cpp \
+	tensor/backend/cuda/cuda_backend.cu
 
 CUDA_BACKEND_HEADERS := \
 	$(TENSOR_DATA_HEADERS) \
 	tensor/backend/cuda/cuda_backend.h
 
 CUDA_BACKEND_SRC := \
-	tensor/storage/cuda_storage.cu \
-	tensor/tensor_data.cpp \
-	tensor/backend/cuda/cuda_backend.cu \
+	$(CUDA_COMMON_SRC) \
 	tests/test_cuda_backend.cu
 
 # ============================================================
-# Default: preserve original CPU build targets
+# Tensor API / backend integration
+# ============================================================
+
+TENSOR_HEADERS := \
+	$(CUDA_BACKEND_HEADERS) \
+	tensor/tensor.h \
+	tensor/backend/backend.h
+
+TENSOR_SRC := \
+	$(CUDA_COMMON_SRC) \
+	tensor/backend/backend.cpp \
+	tensor/tensor.cpp \
+	tests/test_tensor.cu
+
+# ============================================================
+# Default build
 # ============================================================
 
 all: $(BPE_TRAINER_TARGET) $(TENSOR_DATA_TARGET)
@@ -217,7 +236,6 @@ cuda-storage: $(CUDA_STORAGE_OBJ)
 
 # ============================================================
 # CUDA Backend test / benchmark
-# Includes cuBLASLt-backed matmul
 # ============================================================
 
 $(CUDA_BACKEND_TARGET): $(CUDA_BACKEND_SRC) $(CUDA_BACKEND_HEADERS) Makefile | $(BUILD_DIR)
@@ -230,12 +248,30 @@ cuda-backend: $(CUDA_BACKEND_TARGET)
 	./$(CUDA_BACKEND_TARGET)
 
 # ============================================================
+# Tensor API / backend integration test
+# ============================================================
+
+$(TENSOR_TARGET): $(TENSOR_SRC) $(TENSOR_HEADERS) Makefile | $(BUILD_DIR)
+	$(NVCC) $(NVCCFLAGS) $(LDFLAGS) \
+		$(TENSOR_SRC) \
+		-o "$@" \
+		$(CUDA_LDLIBS) $(LDLIBS)
+
+tensor: $(TENSOR_TARGET)
+	./$(TENSOR_TARGET)
+
+# ============================================================
 # Tests
 # ============================================================
 
 test: tensor-data tokenizer run
 
-cuda-test: cuda-storage cuda-backend
+# Build dependencies can run in parallel.
+# GPU test executables run sequentially in this recipe.
+cuda-test: $(CUDA_STORAGE_OBJ) $(CUDA_BACKEND_TARGET) $(TENSOR_TARGET)
+	@echo "CUDAStorage compile check passed."
+	./$(CUDA_BACKEND_TARGET)
+	./$(TENSOR_TARGET)
 
 # ============================================================
 # Clean
@@ -255,6 +291,7 @@ clean:
 	tensor-data \
 	cuda-storage \
 	cuda-backend \
+	tensor \
 	cuda-test \
 	test \
 	clean

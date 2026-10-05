@@ -23,19 +23,15 @@ private:
     Numel numel_;
 
     TensorData(
-    std::shared_ptr<Storage> storage,
-    Shape shape,
-    Strides strides,
-    Offset offset = 0
+        std::shared_ptr<Storage> storage,
+        Shape shape,
+        Strides strides,
+        Offset offset = 0
     );
 
     static Strides compute_contiguous_strides(const Shape& shape);
     void compute_numel();
 
-    static Shape broadcast_shape(
-        const Shape& a,
-        const Shape& b
-    );
 public:
     TensorData(std::shared_ptr<Storage> storage, Shape shape);
 
@@ -59,4 +55,9 @@ public:
     TensorData slice(Dim dim, Index start, Index end, std::size_t step = 1) const;
     TensorData select(Dim dim, Index index) const;
     TensorData flatten() const;
+
+    static Shape broadcast_shape(
+        const Shape& a,
+        const Shape& b
+    );
 };

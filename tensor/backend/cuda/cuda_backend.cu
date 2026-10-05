@@ -9,7 +9,7 @@ namespace {
     constexpr int BLOCK_SIZE = 256;
     constexpr int MAX_DIMS = 8;
 
-    struct TensorMeta {
+    struct TensorMeta{
         int ndim;
         Index shape[MAX_DIMS];
         Index strides[MAX_DIMS];
@@ -105,6 +105,37 @@ namespace {
         binary_kernel<Op><<<blocks, BLOCK_SIZE>>>(input_ptr1, input_ptr2, output_ptr, n, meta1, meta2);
     }
 
+//scalar_binary
+    template <BinaryOp Op>
+    __global__ void scalar_binary_kernel(
+        const Scalar* input,
+        Scalar scalar,
+        Scalar* output,
+        Numel n,
+        TensorMeta meta){
+        Index i = static_cast<Index>(blockIdx.x) * blockDim.x + threadIdx.x;
+        if (i < n) {
+            Index pos = index_to_position(i, meta);
+            output[i] = apply_binary<Op>(input[pos], scalar);
+        }
+    }
+
+    template <BinaryOp Op>
+    void launch_scalar_binary(const TensorData& input, Scalar scalar, TensorData& output){
+        const Scalar* input_ptr =
+            static_cast<const Scalar*>(input.storage().raw_data())
+            + input.offset();
+        Scalar* output_ptr =
+            static_cast<Scalar*>(output.storage().raw_data())
+            + output.offset();
+        Numel n = output.numel();
+        TensorMeta meta = make_meta(input);
+
+        if(n == 0) return;
+        int blocks = static_cast<int>((n + BLOCK_SIZE - 1) / BLOCK_SIZE);
+        
+        scalar_binary_kernel<Op><<<blocks, BLOCK_SIZE>>>(input_ptr, scalar, output_ptr, n, meta);
+    }
 
 //unary
     template <UnaryOp Op>
@@ -469,6 +500,22 @@ namespace cuda_backend {
 
     void div(const TensorData& input1, const TensorData& input2, TensorData& output){
         launch_binary<BinaryOp::Div>(input1, input2, output);
+    }
+
+//scalar_backend
+    void add(const TensorData& input, Scalar scalar, TensorData& output){
+        launch_scalar_binary<BinaryOp::Add>(input, scalar, output);
+    }
+
+    void sub(const TensorData& input, Scalar scalar, TensorData& output){
+        launch_scalar_binary<BinaryOp::Sub>(input, scalar, output);
+    }
+
+    void mul(const TensorData& input, Scalar scalar, TensorData& output){
+        launch_scalar_binary<BinaryOp::Mul>(input, scalar, output);
+    }
+    void div(const TensorData& input, Scalar scalar, TensorData& output){
+        launch_scalar_binary<BinaryOp::Div>(input, scalar, output);
     }
 
 //unary
