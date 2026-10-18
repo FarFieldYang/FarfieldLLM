@@ -1,8 +1,10 @@
 #pragma once
 
-#include "tensor_data.h"
+#include "../../tensor_data.h"
 
 namespace cuda_backend {
+void fill(TensorData& output, Scalar scalar);
+
 //binary
 void add(const TensorData& input1, const TensorData& input2, TensorData& output);
 void sub(const TensorData& input1, const TensorData& input2, TensorData& output);
@@ -24,10 +26,12 @@ void tanh(const TensorData& input, TensorData& output);
 //reduction
 void sum(const TensorData& input, TensorData& output, Dim dim);
 void max(const TensorData& input, TensorData& output, Dim dim);
+void max_scatter(const TensorData& input, const TensorData& source, TensorData& output, Dim dim);
 
 //matrix
 void matmul(const TensorData& input1, const TensorData& input2, TensorData& output);
 
 //TensorData Backend
 void contiguous(const TensorData& input, TensorData& output);
+void slice_scatter(const TensorData& source, TensorData& output, Dim dim, Index start, Index end, std::size_t step);
 }

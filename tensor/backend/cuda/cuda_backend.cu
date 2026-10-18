@@ -249,6 +249,53 @@ namespace {
         reduce_kernel<Op><<<static_cast<int>(n), BLOCK_SIZE>>>(input_ptr, output_ptr, meta, dim);
     }
 
+    __global__ void max_scatter_kernel(
+        const Scalar* input,
+        const Scalar* source,
+        Scalar* output,
+        TensorMeta input_meta,
+        TensorMeta source_meta,
+        TensorMeta output_meta,
+        Dim dim){
+        Index out_idx = static_cast<Index>(blockIdx.x);
+        Index base = index_to_reduce_base(out_idx, dim, input_meta);
+        Index reduce_size = input_meta.shape[dim];
+        Scalar best_value = -INFINITY;
+        Index best_index = reduce_size;
+
+        for(Index index = threadIdx.x; index < reduce_size; index += blockDim.x){
+            Scalar value = input[base + index * input_meta.strides[dim]];
+            if(!isnan(value) && (value > best_value || (value == best_value && index < best_index))){
+                best_value = value;
+                best_index = index;
+            }
+        }
+
+        __shared__ Scalar values[BLOCK_SIZE];
+        __shared__ Index indices[BLOCK_SIZE];
+        values[threadIdx.x] = best_value;
+        indices[threadIdx.x] = best_index;
+        __syncthreads();
+
+        for(unsigned int stride = BLOCK_SIZE / 2; stride > 0; stride /= 2){
+            if(threadIdx.x < stride){
+                Scalar value = values[threadIdx.x + stride];
+                Index index = indices[threadIdx.x + stride];
+                if(value > values[threadIdx.x] || (value == values[threadIdx.x] && index < indices[threadIdx.x])){
+                    values[threadIdx.x] = value;
+                    indices[threadIdx.x] = index;
+                }
+            }
+            __syncthreads();
+        }
+
+        if(threadIdx.x == 0 && indices[0] < reduce_size){
+            Index output_base = index_to_reduce_base(out_idx, dim, output_meta);
+            output[output_base + indices[0] * output_meta.strides[dim]] =
+                source[index_to_position(out_idx, source_meta)];
+        }
+    }
+
 //matrix
     cublasLtHandle_t get_handle(){
         static cublasLtHandle_t handle = []{
@@ -481,10 +528,90 @@ namespace {
         
         contiguous_kernel<<<blocks, BLOCK_SIZE>>>(input_ptr, output_ptr, n, meta);
     }
+
+    __global__ void fill_kernel(Scalar* output, Numel n, Scalar scalar){
+        Index index = static_cast<Index>(blockIdx.x) * blockDim.x + threadIdx.x;
+        if(index < n)
+            output[index] = scalar;
+    }
+
+    void launch_fill(TensorData& output, Scalar scalar){
+        if(!output.is_contiguous())
+            throw std::invalid_argument("fill output must be contiguous");
+
+        Numel n = output.numel();
+        if(n == 0) return;
+        if(output.offset() > output.storage().size() || n > output.storage().size() - output.offset())
+            throw std::invalid_argument("fill output exceeds storage");
+
+        Scalar* output_ptr = static_cast<Scalar*>(output.storage().raw_data()) + output.offset();
+        int blocks = static_cast<int>((n + BLOCK_SIZE - 1) / BLOCK_SIZE);
+        fill_kernel<<<blocks, BLOCK_SIZE>>>(output_ptr, n, scalar);
+    }
+
+    __global__ void copy_to_view_kernel(
+        const Scalar* source,
+        Scalar* output,
+        Numel n,
+        TensorMeta source_meta,
+        TensorMeta output_meta){
+        Index index = static_cast<Index>(blockIdx.x) * blockDim.x + threadIdx.x;
+        if(index < n)
+            output[index_to_position(index, output_meta)] = source[index_to_position(index, source_meta)];
+    }
+
+    void launch_slice_scatter(const TensorData& source, TensorData& output,
+        Dim dim, Index start, Index end, std::size_t step){
+        auto target = output.slice(dim, start, end, step);
+        if(source.shape() != target.shape())
+            throw std::invalid_argument("slice_scatter source shape mismatch");
+        if(&source.storage() == &output.storage())
+            throw std::invalid_argument("slice_scatter output cannot share source storage");
+
+        TensorMeta source_meta = make_meta(source);
+        TensorMeta target_meta = make_meta(target);
+        launch_fill(output, 0.0f);
+
+        Numel n = source.numel();
+        if(n == 0) return;
+
+        const Scalar* source_ptr = static_cast<const Scalar*>(source.storage().raw_data()) + source.offset();
+        Scalar* target_ptr = static_cast<Scalar*>(target.storage().raw_data()) + target.offset();
+        int blocks = static_cast<int>((n + BLOCK_SIZE - 1) / BLOCK_SIZE);
+        copy_to_view_kernel<<<blocks, BLOCK_SIZE>>>(source_ptr, target_ptr, n, source_meta, target_meta);
+    }
+
+    void launch_max_scatter(const TensorData& input, const TensorData& source, TensorData& output, Dim dim){
+        if(dim >= input.ndim())
+            throw std::out_of_range("max_scatter dimension out of range");
+
+        Shape source_shape = input.shape();
+        source_shape.erase(source_shape.begin() + dim);
+        if(source.shape() != source_shape || output.shape() != input.shape())
+            throw std::invalid_argument("max_scatter shape mismatch");
+        if(&output.storage() == &input.storage() || &output.storage() == &source.storage())
+            throw std::invalid_argument("max_scatter output cannot share input storage");
+
+        TensorMeta input_meta = make_meta(input);
+        TensorMeta source_meta = make_meta(source);
+        TensorMeta output_meta = make_meta(output);
+        launch_fill(output, 0.0f);
+        if(output.numel() == 0) return;
+
+        const Scalar* input_ptr = static_cast<const Scalar*>(input.storage().raw_data()) + input.offset();
+        const Scalar* source_ptr = static_cast<const Scalar*>(source.storage().raw_data()) + source.offset();
+        Scalar* output_ptr = static_cast<Scalar*>(output.storage().raw_data()) + output.offset();
+        max_scatter_kernel<<<static_cast<int>(source.numel()), BLOCK_SIZE>>>(
+            input_ptr, source_ptr, output_ptr, input_meta, source_meta, output_meta, dim);
+    }
 } //namespace
 
 
 namespace cuda_backend {
+    void fill(TensorData& output, Scalar scalar){
+        launch_fill(output, scalar);
+    }
+
 //binary
     void add(const TensorData& input1, const TensorData& input2, TensorData& output){
         launch_binary<BinaryOp::Add>(input1, input2, output);
@@ -544,6 +671,10 @@ namespace cuda_backend {
         launch_reduce<ReduceOp::Max>(input, output, dim);
     }
 
+    void max_scatter(const TensorData& input, const TensorData& source, TensorData& output, Dim dim){
+        launch_max_scatter(input, source, output, dim);
+    }
+
 //matrix
     void matmul(const TensorData& input1, const TensorData& input2, TensorData& output){
         launch_matmul(input1, input2, output);
@@ -552,5 +683,9 @@ namespace cuda_backend {
 //TensorData Backend
     void contiguous(const TensorData& input, TensorData& output){
     launch_contiguous(input, output);
+    }
+
+    void slice_scatter(const TensorData& source, TensorData& output, Dim dim, Index start, Index end, std::size_t step){
+        launch_slice_scatter(source, output, dim, start, end, step);
     }
 }

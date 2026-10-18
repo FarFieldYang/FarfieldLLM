@@ -1,8 +1,10 @@
 #pragma once
 
-#include "tensor_data.h"
+#include "../tensor_data.h"
 
 namespace backend {
+TensorData full(const Shape& shape, Scalar scalar);
+
 //binary
 TensorData add(const TensorData& input1, const TensorData& input2);
 TensorData sub(const TensorData& input1, const TensorData& input2);
@@ -24,6 +26,7 @@ TensorData tanh(const TensorData& input);
 //reduction
 TensorData sum(const TensorData& input, Dim dim);
 TensorData max(const TensorData& input, Dim dim);
+TensorData max_scatter(const TensorData& input, const TensorData& source, Dim dim);
 
 //matrix
 TensorData matmul(const TensorData& input1, const TensorData& input2);
@@ -39,6 +42,7 @@ TensorData squeeze(const TensorData& input, Dim dim);
 TensorData broadcast_to(const TensorData& input, const Shape& new_shape);
 TensorData narrow(const TensorData& input, Dim dim, Index start, std::size_t length);
 TensorData slice(const TensorData& input, Dim dim, Index start, Index end, std::size_t step = 1);
+TensorData slice_scatter(const TensorData& source, const Shape& output_shape, Dim dim, Index start, Index end, std::size_t step);
 TensorData select(const TensorData& input, Dim dim, Index index);
 TensorData flatten(const TensorData& input);
 }

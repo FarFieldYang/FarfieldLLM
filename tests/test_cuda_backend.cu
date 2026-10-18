@@ -8,6 +8,7 @@
 #include <exception>
 #include <iomanip>
 #include <iostream>
+#include <limits>
 #include <memory>
 #include <stdexcept>
 #include <string>
@@ -116,6 +117,8 @@ void require_close(
     Scalar max_error = 0.0f;
 
     for (Numel i = 0; i < actual.size(); ++i) {
+        if(std::isnan(expected[i]) && std::isnan(actual[i])) continue;
+        if(std::isinf(expected[i]) && actual[i] == expected[i]) continue;
         if (!std::isfinite(actual[i]) || !std::isfinite(expected[i])) {
             std::cerr << name << " FAIL: non-finite value at " << i
                       << ", actual=" << actual[i]
@@ -429,6 +432,254 @@ void test_reduce_to_scalar() {
     std::cout << "0D scalar metadata PASS\n";
 }
 
+template <typename Exception, typename Fn>
+void require_exception(const std::string& name, Fn fn){
+    try{
+        fn();
+    }catch(const Exception&){
+        std::cout << name << " PASS\n";
+        return;
+    }catch(const std::exception& error){
+        throw std::runtime_error(name + ": wrong exception: " + error.what());
+    }
+    throw std::runtime_error(name + ": expected exception");
+}
+
+void test_fill(){
+    const Scalar inf = std::numeric_limits<Scalar>::infinity();
+    const Scalar nan = std::numeric_limits<Scalar>::quiet_NaN();
+    const std::vector<Shape> shapes = {Shape{}, Shape{2, 3}, Shape{2, 0, 3}};
+    for(const auto& shape : shapes){
+        for(Scalar scalar : {0.0f, 1.0f, -2.5f, 0.125f, inf, -inf, nan}){
+            auto output = make_output(shape);
+            cuda_backend::fill(output, scalar);
+            sync_after_kernel("fill");
+            require_close("fill values", copy_contiguous_to_host(output),
+                std::vector<Scalar>(output.numel(), scalar));
+        }
+    }
+
+    TensorData base(make_gpu_storage(std::vector<Scalar>(10, -99.0f)), {10});
+    auto output = base.narrow(0, 2, 6).reshape({2, 3});
+    cuda_backend::fill(output, 3.5f);
+    sync_after_kernel("fill offset");
+    require_close("fill preserves output guards", copy_contiguous_to_host(base),
+        {-99, -99, 3.5f, 3.5f, 3.5f, 3.5f, 3.5f, 3.5f, -99, -99});
+
+    auto transpose = output.transpose(0, 1);
+    require_invalid_argument("fill rejects non-contiguous output", [&]{
+        cuda_backend::fill(transpose, 0.0f);
+    });
+    auto broadcast = base.narrow(0, 0, 1).broadcast_to({3});
+    require_invalid_argument("fill rejects broadcast output", [&]{
+        cuda_backend::fill(broadcast, 0.0f);
+    });
+    require_invalid_argument("TensorData rejects undersized storage", [&]{
+        (void)TensorData(make_gpu_storage({1}), {2});
+    });
+}
+
+void check_slice_scatter(const std::string& name, const TensorData& source,
+    const Shape& output_shape, Dim dim, Index start, Index end, std::size_t step,
+    const std::vector<Scalar>& expected){
+    auto output = make_output(output_shape);
+    cuda_backend::slice_scatter(source, output, dim, start, end, step);
+    sync_after_kernel("slice_scatter");
+    require_close(name, copy_contiguous_to_host(output), expected);
+}
+
+void test_slice_scatter(){
+    TensorData source(make_gpu_storage({3, 4}), {2});
+    check_slice_scatter("scatter continuous interval", source, {5}, 0, 1, 3, 1, {0, 3, 4, 0, 0});
+    check_slice_scatter("scatter stepped slice", source, {5}, 0, 1, 5, 2, {0, 3, 0, 4, 0});
+    check_slice_scatter("scatter partial final step", source, {6}, 0, 1, 6, 3, {0, 3, 0, 0, 4, 0});
+
+    TensorData scalar(make_gpu_storage({7}), {});
+    check_slice_scatter("scatter selected scalar", scalar.unsqueeze(0), {4}, 0, 2, 3, 1, {0, 0, 7, 0});
+
+    auto empty = make_output({0});
+    check_slice_scatter("scatter empty slice", empty, {5}, 0, 3, 3, 1, {0, 0, 0, 0, 0});
+    check_slice_scatter("scatter empty target", empty, {0}, 0, 0, 0, 1, {});
+
+    TensorData matrix(make_gpu_storage({1, 2, 3, 4, 5, 6}), {2, 3});
+    check_slice_scatter("scatter transpose source", matrix.transpose(0, 1), {3, 5}, 1, 1, 5, 2,
+        {0, 1, 0, 4, 0, 0, 2, 0, 5, 0, 0, 3, 0, 6, 0});
+
+    TensorData rows(make_gpu_storage({1, 2, 3, 4}), {2, 2});
+    check_slice_scatter("scatter non-last axis", rows, {5, 2}, 0, 1, 5, 2,
+        {0, 0, 1, 2, 0, 0, 3, 4, 0, 0});
+
+    TensorData row(make_gpu_storage({2, 3}), {1, 2});
+    check_slice_scatter("scatter broadcast source", row.broadcast_to({3, 2}), {3, 4}, 1, 0, 4, 2,
+        {2, 0, 3, 0, 2, 0, 3, 0, 2, 0, 3, 0});
+    TensorData offset_base(make_gpu_storage({-99, 3, 4, -99}), {4});
+    check_slice_scatter("scatter offset source", offset_base.narrow(0, 1, 2), {5}, 0, 1, 5, 2,
+        {0, 3, 0, 4, 0});
+    require_close("scatter preserves source", copy_contiguous_to_host(offset_base), {-99, 3, 4, -99});
+
+    TensorData rank8_source(make_gpu_storage({3, 4}), {1, 1, 1, 1, 1, 1, 1, 2});
+    check_slice_scatter("scatter rank eight", rank8_source, {1, 1, 1, 1, 1, 1, 1, 5},
+        7, 1, 5, 2, {0, 3, 0, 4, 0});
+
+    TensorData guards(make_gpu_storage(std::vector<Scalar>(9, -99.0f)), {9});
+    auto output = guards.narrow(0, 2, 5);
+    cuda_backend::slice_scatter(source, output, 0, 1, 5, 2);
+    sync_after_kernel("scatter output guards");
+    require_close("scatter preserves output guards", copy_contiguous_to_host(guards),
+        {-99, -99, 0, 3, 0, 4, 0, -99, -99});
+
+    require_exception<std::out_of_range>("scatter rejects axis", [&]{
+        cuda_backend::slice_scatter(source, output, 1, 1, 5, 2);
+    });
+    require_invalid_argument("scatter rejects zero step", [&]{
+        cuda_backend::slice_scatter(source, output, 0, 1, 5, 0);
+    });
+    require_invalid_argument("scatter rejects reversed range", [&]{
+        cuda_backend::slice_scatter(source, output, 0, 4, 1, 1);
+    });
+    require_exception<std::out_of_range>("scatter rejects range", [&]{
+        cuda_backend::slice_scatter(source, output, 0, 1, 6, 2);
+    });
+    require_invalid_argument("scatter rejects shape", [&]{
+        cuda_backend::slice_scatter(source, output, 0, 1, 4, 1);
+    });
+    auto alias = output.narrow(0, 0, 2);
+    require_invalid_argument("scatter rejects alias", [&]{
+        cuda_backend::slice_scatter(alias, output, 0, 1, 5, 2);
+    });
+    auto non_contiguous = matrix.transpose(0, 1);
+    require_invalid_argument("scatter rejects non-contiguous output", [&]{
+        cuda_backend::slice_scatter(rows, non_contiguous, 0, 0, 2, 1);
+    });
+    auto rank9 = make_output(Shape(9, 1));
+    auto rank9_source = make_output(Shape(9, 1));
+    require_invalid_argument("scatter rejects excessive rank", [&]{
+        cuda_backend::slice_scatter(rank9_source, rank9, 0, 0, 1, 1);
+    });
+    require_close("rejected scatter preserves output", copy_contiguous_to_host(guards),
+        {-99, -99, 0, 3, 0, 4, 0, -99, -99});
+}
+
+void check_max_scatter(const std::string& name, const TensorData& input,
+    const TensorData& source, Dim dim, const std::vector<Scalar>& expected){
+    auto output = make_output(input.shape());
+    cuda_backend::max_scatter(input, source, output, dim);
+    sync_after_kernel("max_scatter");
+    require_close(name, copy_contiguous_to_host(output), expected);
+}
+
+void test_max_scatter(){
+    TensorData matrix(make_gpu_storage({2, 7, 7, 5, 4, 3}), {2, 3});
+    TensorData rows(make_gpu_storage({10, 20}), {2});
+    TensorData columns(make_gpu_storage({10, 20, 30}), {3});
+    check_max_scatter("max scatter rows and first tie", matrix, rows, 1, {0, 10, 0, 20, 0, 0});
+    check_max_scatter("max scatter columns", matrix, columns, 0, {0, 20, 30, 10, 0, 0});
+    check_max_scatter("max scatter transpose input", matrix.transpose(0, 1), columns, 1,
+        {0, 10, 20, 0, 30, 0});
+
+    TensorData source_base(make_gpu_storage({-99, 10, -99, 20, -99, 30, -99}), {7});
+    check_max_scatter("max scatter strided offset source", matrix.transpose(0, 1),
+        source_base.slice(0, 1, 7, 2), 1, {0, 10, 20, 0, 30, 0});
+    require_close("max scatter preserves source", copy_contiguous_to_host(source_base),
+        {-99, 10, -99, 20, -99, 30, -99});
+
+    TensorData broadcast_row(make_gpu_storage({1, 7, 7}), {1, 3});
+    TensorData scalar(make_gpu_storage({6}), {});
+    check_max_scatter("max scatter broadcast input and source", broadcast_row.broadcast_to({2, 3}),
+        scalar.broadcast_to({2}), 1, {0, 6, 0, 0, 6, 0});
+    TensorData negatives(make_gpu_storage({-9, -3, -5}), {3});
+    check_max_scatter("max scatter negative values", negatives, scalar, 0, {0, 6, 0});
+
+    const Scalar inf = std::numeric_limits<Scalar>::infinity();
+    const Scalar nan = std::numeric_limits<Scalar>::quiet_NaN();
+    TensorData special(make_gpu_storage({nan, 4, 4, nan, nan, nan, -inf, -inf, -inf,
+        inf, 1, inf, -0.0f, 0.0f, -1, nan, -inf, nan}), {6, 3});
+    TensorData special_source(make_gpu_storage({1, 2, 3, 4, 5, 6}), {6});
+    check_max_scatter("max scatter NaN infinity and zero rules", special, special_source, 1,
+        {0, 1, 0, 0, 0, 0, 3, 0, 0, 4, 0, 0, 5, 0, 0, 0, 6, 0});
+
+    std::vector<Scalar> wide_values(700, 0.0f);
+    wide_values[257] = 9;
+    wide_values[511] = 9;
+    TensorData wide(make_gpu_storage(wide_values), {700});
+    std::vector<Scalar> wide_expected(700, 0.0f);
+    wide_expected[257] = 6;
+    check_max_scatter("max scatter tie across block lanes", wide, scalar, 0, wide_expected);
+
+    TensorData cube(make_gpu_storage({1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12}), {2, 3, 2});
+    TensorData cube_source(make_gpu_storage({1, 2, 3, 4}), {2, 2});
+    check_max_scatter("max scatter middle axis", cube, cube_source, 1,
+        {0, 0, 0, 0, 1, 2, 0, 0, 0, 0, 3, 4});
+
+    std::vector<Scalar> larger_values(24);
+    for(Index index = 0; index < larger_values.size(); ++index)
+        larger_values[index] = static_cast<Scalar>(index + 1);
+    TensorData larger(make_gpu_storage(larger_values), {2, 4, 3});
+    TensorData transposed_source(make_gpu_storage({1, 2, 3, 4, 5, 6}), {3, 2});
+    std::vector<Scalar> transposed_expected(24, 0.0f);
+    transposed_expected[9] = 1;
+    transposed_expected[10] = 3;
+    transposed_expected[11] = 5;
+    transposed_expected[21] = 2;
+    transposed_expected[22] = 4;
+    transposed_expected[23] = 6;
+    check_max_scatter("max scatter transpose source", larger, transposed_source.transpose(0, 1), 1,
+        transposed_expected);
+
+    TensorData rank8_input(make_gpu_storage({9, 9, 1}), {1, 1, 1, 1, 1, 1, 1, 3});
+    auto rank7_source = scalar.reshape(Shape(7, 1));
+    check_max_scatter("max scatter rank eight", rank8_input, rank7_source, 7, {6, 0, 0});
+    TensorData non_finite_source(make_gpu_storage({nan}), {});
+    check_max_scatter("max scatter propagates source NaN", negatives, non_finite_source, 0, {0, nan, 0});
+
+    auto empty_axis = make_output({2, 0, 3});
+    auto empty_source = make_output({2, 3});
+    check_max_scatter("max scatter empty axis", empty_axis, empty_source, 1, {});
+    auto empty_input = make_output({0, 3});
+    auto empty_reduced = make_output({0});
+    check_max_scatter("max scatter empty result", empty_input, empty_reduced, 1, {});
+
+    TensorData input_base(make_gpu_storage({-99, 1, 9, 9, -99}), {5});
+    auto input = input_base.narrow(0, 1, 3);
+    TensorData guards(make_gpu_storage(std::vector<Scalar>(7, -99.0f)), {7});
+    auto output = guards.narrow(0, 2, 3);
+    cuda_backend::max_scatter(input, scalar, output, 0);
+    sync_after_kernel("max scatter output guards");
+    require_close("max scatter preserves input", copy_contiguous_to_host(input_base), {-99, 1, 9, 9, -99});
+    require_close("max scatter preserves output guards", copy_contiguous_to_host(guards),
+        {-99, -99, 0, 6, 0, -99, -99});
+
+    require_exception<std::out_of_range>("max scatter rejects axis", [&]{
+        cuda_backend::max_scatter(input, scalar, output, 1);
+    });
+    require_invalid_argument("max scatter rejects source shape", [&]{
+        cuda_backend::max_scatter(input, rows, output, 0);
+    });
+    auto wrong_output = make_output({4});
+    require_invalid_argument("max scatter rejects output shape", [&]{
+        cuda_backend::max_scatter(input, scalar, wrong_output, 0);
+    });
+    require_invalid_argument("max scatter rejects input alias", [&]{
+        cuda_backend::max_scatter(input, scalar, input, 0);
+    });
+    auto source_alias = output.select(0, 0);
+    require_invalid_argument("max scatter rejects source alias", [&]{
+        cuda_backend::max_scatter(input, source_alias, output, 0);
+    });
+    auto non_contiguous = make_output({2, 3}).transpose(0, 1);
+    require_invalid_argument("max scatter rejects non-contiguous output", [&]{
+        cuda_backend::max_scatter(matrix.transpose(0, 1), columns, non_contiguous, 1);
+    });
+    auto rank9 = make_output(Shape(9, 1));
+    auto rank9_output = make_output(Shape(9, 1));
+    auto rank8_source = make_output(Shape(8, 1));
+    require_invalid_argument("max scatter rejects excessive rank", [&]{
+        cuda_backend::max_scatter(rank9, rank8_source, rank9_output, 0);
+    });
+    require_close("rejected max scatter preserves output", copy_contiguous_to_host(guards),
+        {-99, -99, 0, 6, 0, -99, -99});
+}
+
 void run_stride_and_reduction_correctness() {
     std::cout << "\nStride-aware / Reduction Correctness\n";
     test_unary_transpose();
@@ -440,6 +691,9 @@ void run_stride_and_reduction_correctness() {
     test_reduce_broadcast();
     test_reduce_slice();
     test_reduce_to_scalar();
+    test_fill();
+    test_slice_scatter();
+    test_max_scatter();
 }
 
 // ============================================================

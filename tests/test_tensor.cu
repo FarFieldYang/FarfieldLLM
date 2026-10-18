@@ -6,6 +6,7 @@
 #include <cstdlib>
 #include <exception>
 #include <iostream>
+#include <limits>
 #include <memory>
 #include <stdexcept>
 #include <string>
@@ -120,6 +121,8 @@ void check_values(
     require(actual.size() == expected.size(), name + ": value count");
 
     for (Index i = 0; i < actual.size(); ++i) {
+        if(std::isnan(expected[i]) && std::isnan(actual[i])) continue;
+        if(std::isinf(expected[i]) && actual[i] == expected[i]) continue;
         if (!std::isfinite(actual[i]) || !std::isfinite(expected[i])) {
             throw std::runtime_error(
                 name + ": non-finite value at " + std::to_string(i)
@@ -218,6 +221,171 @@ std::vector<Scalar> map_values(
 // ============================================================
 // Construction and metadata
 // ============================================================
+
+void test_factories(){
+    check_case("zeros factory", Tensor::zeros({2, 3}), backend::full({2, 3}, 0.0f),
+        {2, 3}, {0, 0, 0, 0, 0, 0});
+    check_case("ones factory", Tensor::ones({2, 3}), backend::full({2, 3}, 1.0f),
+        {2, 3}, {1, 1, 1, 1, 1, 1});
+    check_case("full factory", Tensor::full({2, 2}, -2.5f), backend::full({2, 2}, -2.5f),
+        {2, 2}, {-2.5f, -2.5f, -2.5f, -2.5f});
+    check_case("scalar ones factory", Tensor::ones({}), backend::full({}, 1.0f), {}, {1});
+    check_case("scalar zeros factory", Tensor::zeros({}), backend::full({}, 0.0f), {}, {0});
+    check_case("scalar full factory", Tensor::full({}, 0.125f), backend::full({}, 0.125f), {}, {0.125f});
+    check_case("empty full factory", Tensor::full({2, 0, 3}, 7.0f), backend::full({2, 0, 3}, 7.0f),
+        {2, 0, 3}, {});
+    check_case("empty zeros factory", Tensor::zeros({0}), backend::full({0}, 0.0f), {0}, {});
+    check_case("empty ones factory", Tensor::ones({0}), backend::full({0}, 1.0f), {0}, {});
+
+    const Scalar inf = std::numeric_limits<Scalar>::infinity();
+    const Scalar nan = std::numeric_limits<Scalar>::quiet_NaN();
+    check_case("infinity full factory", Tensor::full({2}, inf), backend::full({2}, inf), {2}, {inf, inf});
+    check_case("NaN full factory", Tensor::full({2}, nan), backend::full({2}, nan), {2}, {nan, nan});
+
+    auto first = backend::full({2}, 1.0f);
+    auto second = backend::full({2}, 0.0f);
+    require(&first.storage() != &second.storage(), "Factories must allocate independent storage");
+    check_values("factories preserve earlier results", read_data(first), {1, 1});
+}
+
+void test_slice_scatter(){
+    auto source = make_data({2}, {3, 4});
+    check_case("slice scatter interval", Tensor(source).slice_scatter({5}, 0, 1, 3),
+        backend::slice_scatter(source, {5}, 0, 1, 3, 1), {5}, {0, 3, 4, 0, 0});
+    check_case("slice scatter step", Tensor(source).slice_scatter({5}, 0, 1, 5, 2),
+        backend::slice_scatter(source, {5}, 0, 1, 5, 2), {5}, {0, 3, 0, 4, 0});
+    check_case("slice scatter partial final step", Tensor(source).slice_scatter({6}, 0, 1, 6, 3),
+        backend::slice_scatter(source, {6}, 0, 1, 6, 3), {6}, {0, 3, 0, 0, 4, 0});
+
+    auto selected = make_data({}, {7}).unsqueeze(0);
+    check_case("slice scatter scalar selection", Tensor(selected).slice_scatter({4}, 0, 2, 3),
+        backend::slice_scatter(selected, {4}, 0, 2, 3, 1), {4}, {0, 0, 7, 0});
+
+    auto transpose = make_data({2, 3}, {1, 2, 3, 4, 5, 6}).transpose(0, 1);
+    check_case("slice scatter transpose source", Tensor(transpose).slice_scatter({3, 5}, 1, 1, 5, 2),
+        backend::slice_scatter(transpose, {3, 5}, 1, 1, 5, 2), {3, 5},
+        {0, 1, 0, 4, 0, 0, 2, 0, 5, 0, 0, 3, 0, 6, 0});
+    auto broadcast = make_data({1, 2}, {2, 3}).broadcast_to({3, 2});
+    check_case("slice scatter broadcast source", Tensor(broadcast).slice_scatter({3, 4}, 1, 0, 4, 2),
+        backend::slice_scatter(broadcast, {3, 4}, 1, 0, 4, 2), {3, 4},
+        {2, 0, 3, 0, 2, 0, 3, 0, 2, 0, 3, 0});
+    auto rows = make_data({2, 2}, {1, 2, 3, 4});
+    check_case("slice scatter non-last axis", Tensor(rows).slice_scatter({5, 2}, 0, 1, 5, 2),
+        backend::slice_scatter(rows, {5, 2}, 0, 1, 5, 2), {5, 2},
+        {0, 0, 1, 2, 0, 0, 3, 4, 0, 0});
+    auto offset_base = make_data({4}, {-99, 3, 4, -99});
+    auto offset = offset_base.narrow(0, 1, 2);
+    auto result = backend::slice_scatter(offset, {5}, 0, 1, 5, 2);
+    check_case("slice scatter offset source", Tensor(offset).slice_scatter({5}, 0, 1, 5, 2),
+        result, {5}, {0, 3, 0, 4, 0});
+    require(&result.storage() != &offset.storage(), "slice_scatter must allocate independent storage");
+    check_values("slice scatter preserves source", read_data(offset_base), {-99, 3, 4, -99});
+
+    auto empty = make_data({0}, {});
+    check_case("slice scatter empty slice", Tensor(empty).slice_scatter({5}, 0, 3, 3),
+        backend::slice_scatter(empty, {5}, 0, 3, 3, 1), {5}, {0, 0, 0, 0, 0});
+    check_case("slice scatter empty target", Tensor(empty).slice_scatter({0}, 0, 0, 0),
+        backend::slice_scatter(empty, {0}, 0, 0, 0, 1), {0}, {});
+}
+
+void test_max_scatter(){
+    auto input = make_data({2, 3}, {2, 7, 7, 5, 4, 3});
+    auto rows = make_data({2}, {10, 20});
+    auto columns = make_data({3}, {10, 20, 30});
+    check_case("max scatter rows and first tie", Tensor(input).max_scatter(Tensor(rows), 1),
+        backend::max_scatter(input, rows, 1), {2, 3}, {0, 10, 0, 20, 0, 0});
+    check_case("max scatter columns", Tensor(input).max_scatter(Tensor(columns), 0),
+        backend::max_scatter(input, columns, 0), {2, 3}, {0, 20, 30, 10, 0, 0});
+
+    auto transpose = input.transpose(0, 1);
+    auto source_base = make_data({7}, {-99, 10, -99, 20, -99, 30, -99});
+    auto strided_source = source_base.slice(0, 1, 7, 2);
+    check_case("max scatter transpose and offset source", Tensor(transpose).max_scatter(Tensor(strided_source), 1),
+        backend::max_scatter(transpose, strided_source, 1), {3, 2}, {0, 10, 20, 0, 30, 0});
+
+    auto broadcast = make_data({1, 3}, {1, 7, 7}).broadcast_to({2, 3});
+    auto source = make_data({}, {6}).broadcast_to({2});
+    check_case("max scatter broadcast input and source", Tensor(broadcast).max_scatter(Tensor(source), 1),
+        backend::max_scatter(broadcast, source, 1), {2, 3}, {0, 6, 0, 0, 6, 0});
+
+    auto scalar = make_data({}, {6});
+    auto offset_base = make_data({5}, {-99, -9, -3, -5, -99});
+    auto offset = offset_base.narrow(0, 1, 3);
+    auto result = backend::max_scatter(offset, scalar, 0);
+    check_case("max scatter offset negative input", Tensor(offset).max_scatter(Tensor(scalar), 0),
+        result, {3}, {0, 6, 0});
+    require(&result.storage() != &offset.storage() && &result.storage() != &scalar.storage(),
+        "max_scatter must allocate independent storage");
+    check_values("max scatter preserves input", read_data(offset_base), {-99, -9, -3, -5, -99});
+    check_values("max scatter preserves source", read_data(scalar), {6});
+
+    const Scalar inf = std::numeric_limits<Scalar>::infinity();
+    const Scalar nan = std::numeric_limits<Scalar>::quiet_NaN();
+    auto special = make_data({6, 3}, {nan, 4, 4, nan, nan, nan, -inf, -inf, -inf,
+        inf, 1, inf, -0.0f, 0.0f, -1, nan, -inf, nan});
+    auto special_source = make_data({6}, {1, 2, 3, 4, 5, 6});
+    check_case("max scatter NaN infinity and zero rules", Tensor(special).max_scatter(Tensor(special_source), 1),
+        backend::max_scatter(special, special_source, 1), {6, 3},
+        {0, 1, 0, 0, 0, 0, 3, 0, 0, 4, 0, 0, 5, 0, 0, 0, 6, 0});
+
+    auto cube = make_data({2, 3, 2}, {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12});
+    auto cube_source = make_data({2, 2}, {1, 2, 3, 4});
+    check_case("max scatter middle axis", Tensor(cube).max_scatter(Tensor(cube_source), 1),
+        backend::max_scatter(cube, cube_source, 1), {2, 3, 2},
+        {0, 0, 0, 0, 1, 2, 0, 0, 0, 0, 3, 4});
+
+    auto empty_axis = make_data({2, 0, 3}, {});
+    auto empty_source = make_zeros({2, 3});
+    check_case("max scatter empty axis", Tensor(empty_axis).max_scatter(Tensor(empty_source), 1),
+        backend::max_scatter(empty_axis, empty_source, 1), {2, 0, 3}, {});
+    auto empty_input = make_data({0, 3}, {});
+    auto empty_reduced = make_data({0}, {});
+    check_case("max scatter empty result", Tensor(empty_input).max_scatter(Tensor(empty_reduced), 1),
+        backend::max_scatter(empty_input, empty_reduced, 1), {0, 3}, {});
+}
+
+void test_scatter_errors(){
+    const Tensor source(make_data({2}, {3, 4}));
+    expect_throw<std::out_of_range>("slice scatter rejects axis", [&]{
+        (void)source.slice_scatter({5}, 1, 1, 5, 2);
+    });
+    expect_throw<std::invalid_argument>("slice scatter rejects zero step", [&]{
+        (void)source.slice_scatter({5}, 0, 1, 5, 0);
+    });
+    expect_throw<std::invalid_argument>("slice scatter rejects reversed range", [&]{
+        (void)source.slice_scatter({5}, 0, 4, 1);
+    });
+    expect_throw<std::out_of_range>("slice scatter rejects range", [&]{
+        (void)source.slice_scatter({5}, 0, 1, 6, 2);
+    });
+    expect_throw<std::invalid_argument>("slice scatter rejects shape", [&]{
+        (void)source.slice_scatter({5}, 0, 1, 4);
+    });
+    expect_throw<std::out_of_range>("slice scatter rejects scalar target", [&]{
+        (void)source.slice_scatter({}, 0, 0, 1);
+    });
+    const Tensor rank9(make_zeros(Shape(9, 1)));
+    expect_throw<std::invalid_argument>("slice scatter rejects excessive rank", [&]{
+        (void)rank9.slice_scatter(Shape(9, 1), 0, 0, 1);
+    });
+
+    const Tensor input(make_zeros({2, 3}));
+    const Tensor rows(make_zeros({2}));
+    expect_throw<std::out_of_range>("max scatter rejects axis", [&]{
+        (void)input.max_scatter(rows, 2);
+    });
+    expect_throw<std::invalid_argument>("max scatter rejects source shape", [&]{
+        (void)input.max_scatter(source, 0);
+    });
+    const Tensor scalar(make_data({}, {1}));
+    expect_throw<std::out_of_range>("max scatter rejects scalar input", [&]{
+        (void)scalar.max_scatter(scalar, 0);
+    });
+    const Tensor rank8_source(make_zeros(Shape(8, 1)));
+    expect_throw<std::invalid_argument>("max scatter rejects excessive rank", [&]{
+        (void)rank9.max_scatter(rank8_source, 0);
+    });
+}
 
 void test_metadata() {
     Tensor matrix(make_data({2, 3}, {1, 2, 3, 4, 5, 6}));
@@ -993,11 +1161,15 @@ int main() {
                   << "Backend: numerical results\n\n";
 
         test_metadata();
+        test_factories();
         test_binary();
         test_scalar_operators();
         test_unary();
         test_reductions();
         test_views();
+        test_slice_scatter();
+        test_max_scatter();
+        test_scatter_errors();
         test_matmul();
         test_errors();
 

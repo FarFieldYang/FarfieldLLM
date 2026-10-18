@@ -1,9 +1,21 @@
 #include <utility>
 
 #include "tensor.h"
-#include "backend.h"
+#include "backend/backend.h"
 
 Tensor::Tensor(TensorData data): data_(std::move(data)){}
+
+Tensor Tensor::full(const Shape& shape, Scalar scalar){
+    return Tensor(backend::full(shape, scalar));
+}
+
+Tensor Tensor::zeros(const Shape& shape){
+    return full(shape, 0.0f);
+}
+
+Tensor Tensor::ones(const Shape& shape){
+    return full(shape, 1.0f);
+}
 
 //metadata
 std::size_t Tensor::size() const{
@@ -78,6 +90,10 @@ Tensor Tensor::max(Dim dim) const{
     return Tensor(backend::max(data_, dim));
 }
 
+Tensor Tensor::max_scatter(const Tensor& source, Dim dim) const{
+    return Tensor(backend::max_scatter(data_, source.data_, dim));
+}
+
 //matrix
 Tensor Tensor::matmul(const Tensor& other) const{
     return Tensor(backend::matmul(data_, other.data_));
@@ -119,6 +135,10 @@ Tensor Tensor::narrow(Dim dim, Index start, std::size_t length) const{
 
 Tensor Tensor::slice(Dim dim, Index start, Index end, std::size_t step) const{
     return Tensor(backend::slice(data_, dim, start, end, step));
+}
+
+Tensor Tensor::slice_scatter(const Shape& output_shape, Dim dim, Index start, Index end, std::size_t step) const{
+    return Tensor(backend::slice_scatter(data_, output_shape, dim, start, end, step));
 }
 
 Tensor Tensor::select(Dim dim, Index index) const{

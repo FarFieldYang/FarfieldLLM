@@ -4,7 +4,7 @@
 #include <cstddef>
 #include <memory>
 
-#include "storage.h"
+#include "storage/storage.h"
 
 using Shape = std::vector<std::size_t>;
 using Strides = std::vector<std::size_t>;

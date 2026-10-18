@@ -4,7 +4,7 @@
 #include <memory>
 
 #include "backend.h"
-#include "cuda_backend.h"
+#include "cuda/cuda_backend.h"
 
 namespace {
     Numel shape_numel(const Shape& shape){
@@ -20,6 +20,12 @@ namespace {
 }
 
 namespace backend {
+    TensorData full(const Shape& shape, Scalar scalar){
+        TensorData output = empty(shape);
+        cuda_backend::fill(output, scalar);
+        return output;
+    }
+
 //binary
     TensorData add(const TensorData& input1, const TensorData& input2){
         Shape output_shape = TensorData::broadcast_shape(input1.shape(), input2.shape());
@@ -138,6 +144,20 @@ namespace backend {
         return output;
     }
 
+    TensorData max_scatter(const TensorData& input, const TensorData& source, Dim dim){
+        if(dim >= input.ndim())
+            throw std::out_of_range("max_scatter dimension out of range");
+
+        Shape source_shape = input.shape();
+        source_shape.erase(source_shape.begin() + dim);
+        if(source.shape() != source_shape)
+            throw std::invalid_argument("max_scatter source shape mismatch");
+
+        TensorData output = empty(input.shape());
+        cuda_backend::max_scatter(input, source, output, dim);
+        return output;
+    }
+
     //matrix
     TensorData matmul(const TensorData& input1, const TensorData& input2){
         if(input1.ndim() < 2 || input2.ndim() != input1.ndim())
@@ -180,6 +200,27 @@ namespace backend {
     TensorData broadcast_to(const TensorData& input, const Shape& new_shape){return input.broadcast_to(new_shape);}
     TensorData narrow(const TensorData& input, Dim dim, Index start, std::size_t length){return input.narrow(dim, start, length);}
     TensorData slice(const TensorData& input, Dim dim, Index start, Index end, std::size_t step){return input.slice(dim, start, end, step);}
+    TensorData slice_scatter(const TensorData& source, const Shape& output_shape, Dim dim, Index start, Index end, std::size_t step){
+        if(dim >= output_shape.size())
+            throw std::out_of_range("slice_scatter dimension out of range");
+        if(step == 0)
+            throw std::invalid_argument("slice_scatter step cannot be zero");
+        if(start > end)
+            throw std::invalid_argument("slice_scatter start cannot be greater than end");
+        if(end > output_shape[dim])
+            throw std::out_of_range("slice_scatter end out of range");
+
+        Shape source_shape = output_shape;
+        std::size_t span = end - start;
+        source_shape[dim] = span == 0 ? 0 : 1 + (span - 1) / step;
+        if(source.shape() != source_shape)
+            throw std::invalid_argument("slice_scatter source shape mismatch");
+
+        TensorData output = empty(output_shape);
+        cuda_backend::slice_scatter(source, output, dim, start, end, step);
+        return output;
+    }
+
     TensorData select(const TensorData& input, Dim dim, Index index){return input.select(dim, index);}
     TensorData flatten(const TensorData& input){return input.flatten();}
 }
