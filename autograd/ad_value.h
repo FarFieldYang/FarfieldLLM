@@ -7,13 +7,17 @@
 #include "tensor.h"
 
 class Node;
+class Engine;
 
 class ADimpl{
+    friend class Engine;
+
 private:
     Tensor value_;
     std::optional<Tensor> grad_;
     std::shared_ptr<Node> creator_;
     bool requires_grad_;
+    bool backward_used_ = false;
 
 public:
     explicit ADimpl(Tensor value, bool requires_grad = false, std::shared_ptr<Node> creator = nullptr);
@@ -24,6 +28,8 @@ public:
 };
 
 class ADvalue{
+    friend class Engine;
+
 private:
     std::shared_ptr<ADimpl> impl_;
     explicit ADvalue(std::shared_ptr<ADimpl> impl);

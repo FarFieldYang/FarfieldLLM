@@ -5,6 +5,7 @@
 #include "tensor_data.h"
 
 class Tensor{
+    friend class TensorTestAccess;
 
 private:
     TensorData data_;
