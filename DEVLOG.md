@@ -108,4 +108,21 @@ Integration tests cover rank and multi-axis broadcasting, transpose and offset v
 
 All Tensor API / backend integration tests pass.
 
-Next: autograd.
+## 2026.10.18 Autograd v1
+difficult but interesting
+
+Implemented ADvalue, ADimpl, and 26 operation Nodes on top of Tensor v1.
+
+ADvalue provides the user interface, ADimpl holds tensor values and gradients, and Nodes define local backward rules. The graph keeps upstream dependencies alive without storing downstream references.
+
+Added the autograd Engine with iterative DFS topological ordering, reverse traversal, gradient accumulation, and explicit zero_grad. The first version supports scalar losses and first-order gradients, with one backward pass per graph.
+
+Extended Tensor with full/zeros/ones and gradient scatter operations for slicing and max reductions.
+
+Added numerical gradient tests, finite-difference checks, and coverage for broadcasting, views, matmul, shared subgraphs, repeated inputs, gradient accumulation, and graph reuse restrictions.
+
+All autograd tests and the full test suite pass.
+
+Thanks to GPT-6.1 Sol for helping me turn the design into code so quickly.
+
+Next: SGD, neural network layers, and the first training loop.

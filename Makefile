@@ -1,7 +1,7 @@
 .DEFAULT_GOAL := all
 
 CXX := g++
-NVCC := nvcc
+NVCC := $(or $(shell command -v nvcc 2>/dev/null),$(wildcard /usr/local/cuda/bin/nvcc),nvcc)
 
 BUILD_DIR := build
 
@@ -13,8 +13,7 @@ INCLUDES := \
 	-Itokenizer \
 	-Itensor \
 	-Itensor/storage \
-	-Itensor/backend \
-	-Itensor/backend/cuda
+	-Iautograd
 
 CXXFLAGS := \
 	-std=c++20 \
@@ -52,6 +51,9 @@ TENSOR_DATA_TARGET := $(BUILD_DIR)/test_tensor_data
 CUDA_STORAGE_OBJ := $(BUILD_DIR)/cuda_storage.o
 CUDA_BACKEND_TARGET := $(BUILD_DIR)/test_cuda_backend
 TENSOR_TARGET := $(BUILD_DIR)/test_tensor
+AUTOGRAD_TARGET := $(BUILD_DIR)/test_autograd
+AUTOGRAD_SRC := autograd/ad_value.cpp autograd/engine.cpp
+AUTOGRAD_OBJ := $(patsubst autograd/%.cpp,$(BUILD_DIR)/%.o,$(AUTOGRAD_SRC))
 
 # ============================================================
 # Tokenizer
@@ -136,11 +138,20 @@ TENSOR_SRC := \
 	tensor/tensor.cpp \
 	tests/test_tensor.cu
 
+AUTOGRAD_HEADERS := $(wildcard autograd/*.h autograd/nodes/*.h)
+
+AUTOGRAD_TEST_SRC := \
+	$(CUDA_COMMON_SRC) \
+	tensor/backend/backend.cpp \
+	tensor/tensor.cpp \
+	$(AUTOGRAD_SRC) \
+	tests/test_autograd.cu
+
 # ============================================================
 # Default build
 # ============================================================
 
-all: $(BPE_TRAINER_TARGET) $(TENSOR_DATA_TARGET)
+all: $(BPE_TRAINER_TARGET) $(TENSOR_DATA_TARGET) $(AUTOGRAD_OBJ)
 
 $(BUILD_DIR):
 	mkdir -p "$(BUILD_DIR)"
@@ -264,14 +275,31 @@ tensor: $(TENSOR_TARGET)
 # Tests
 # ============================================================
 
-test: tensor-data tokenizer run
+$(AUTOGRAD_OBJ): $(BUILD_DIR)/%.o: autograd/%.cpp $(AUTOGRAD_HEADERS) $(TENSOR_HEADERS) Makefile | $(BUILD_DIR)
+	$(CXX) $(CXXFLAGS) -c "$<" -o "$@"
+
+autograd: $(AUTOGRAD_OBJ)
+
+$(AUTOGRAD_TARGET): $(AUTOGRAD_TEST_SRC) $(AUTOGRAD_HEADERS) $(TENSOR_HEADERS) Makefile | $(BUILD_DIR)
+	$(NVCC) $(NVCCFLAGS) $(LDFLAGS) \
+		$(AUTOGRAD_TEST_SRC) \
+		-o "$@" \
+		$(CUDA_LDLIBS) $(LDLIBS)
+
+autograd-test: $(AUTOGRAD_TARGET)
+	./$(AUTOGRAD_TARGET)
+
+test: tensor-data tokenizer run autograd
+
+test-all: test cuda-test
 
 # Build dependencies can run in parallel.
 # GPU test executables run sequentially in this recipe.
-cuda-test: $(CUDA_STORAGE_OBJ) $(CUDA_BACKEND_TARGET) $(TENSOR_TARGET)
+cuda-test: $(CUDA_STORAGE_OBJ) $(CUDA_BACKEND_TARGET) $(TENSOR_TARGET) $(AUTOGRAD_TARGET)
 	@echo "CUDAStorage compile check passed."
 	./$(CUDA_BACKEND_TARGET)
 	./$(TENSOR_TARGET)
+	./$(AUTOGRAD_TARGET)
 
 # ============================================================
 # Clean
@@ -292,6 +320,9 @@ clean:
 	cuda-storage \
 	cuda-backend \
 	tensor \
+	autograd \
+	autograd-test \
 	cuda-test \
 	test \
+	test-all \
 	clean

@@ -5,11 +5,16 @@
 #include "tensor_data.h"
 
 class Tensor{
+    friend class TensorTestAccess;
 
 private:
     TensorData data_;
 public:
     explicit Tensor(TensorData data);
+
+    static Tensor full(const Shape& shape, Scalar scalar);
+    static Tensor zeros(const Shape& shape);
+    static Tensor ones(const Shape& shape);
 
     std::size_t size() const;
     std::size_t ndim() const;
@@ -29,6 +34,7 @@ public:
     Tensor tanh()const;
     Tensor sum(Dim dim)const;
     Tensor max(Dim dim)const;
+    Tensor max_scatter(const Tensor& source, Dim dim) const;
     Tensor matmul(const Tensor& other) const;
 //TensorData_backend
     Tensor contiguous() const;
@@ -41,6 +47,7 @@ public:
     Tensor broadcast_to(const Shape& new_shape) const;
     Tensor narrow(Dim dim, Index start, std::size_t length) const;
     Tensor slice(Dim dim, Index start, Index end, std::size_t step = 1) const;
+    Tensor slice_scatter(const Shape& output_shape, Dim dim, Index start, Index end, std::size_t step = 1) const;
     Tensor select(Dim dim, Index index) const;
     Tensor flatten() const;
 };

@@ -2,7 +2,7 @@
 
 A from-scratch LLM project in C++20 and CUDA.
 
-The project currently includes a BPE tokenizer and a CUDA-backed Tensor implementation. The next step is autograd, followed by the neural network and Transformer layers.
+The project currently includes a BPE tokenizer, a CUDA-backed Tensor implementation, and first-order reverse-mode autograd. The next steps are SGD, neural network layers, and the first training loop.
 
 No PyTorch or TensorFlow is used for the tensor implementation. Matrix multiplication uses cuBLASLt.
 
@@ -14,16 +14,22 @@ The project uses C++20, CUDA, and GNU Make.
 make
 ```
 
-Run the CPU tests:
+Run the CPU tests and compile the autograd objects:
 
 ```bash
 make test
 ```
 
-Run the CUDA backend and Tensor tests:
+Run the CUDA backend, Tensor, and autograd tests:
 
 ```bash
 make cuda-test
+```
+
+Run all CPU and GPU tests:
+
+```bash
+make test-all
 ```
 
 Individual targets are also available:
@@ -33,6 +39,7 @@ make tokenizer
 make tensor-data
 make cuda-backend
 make tensor
+make autograd-test
 ```
 
 ## tokenizer
@@ -61,6 +68,9 @@ More tokenizer benchmark results are in [DEVLOG.md](DEVLOG.md).
 Tensor v1 is CUDA-backed and currently supports:
 
 ```text
+initialization
+    full  zeros  ones
+
 binary
     +  -  *  /
 
@@ -90,6 +100,10 @@ views
 
 layout
     contiguous
+
+scatter
+    slice_scatter
+    max_scatter
 ```
 
 `TensorData` stores the shape, strides, offset, and shared storage used by a Tensor.
@@ -99,6 +113,28 @@ View operations can therefore represent non-contiguous tensors without copying t
 The CUDA backend handles strided elementwise and reduction operations. Binary operations support broadcasting.
 
 Matrix multiplication uses cuBLASLt. Both 2D and batched matrix multiplication are supported. Non-contiguous inputs are converted to contiguous tensors before the cuBLASLt call.
+
+## autograd
+
+Autograd v1 wraps the supported Tensor operations with 26 operation Nodes.
+
+`ADvalue` is the user-facing handle. `ADimpl` stores the forward Tensor, optional gradient, and creator Node. Each Node holds its inputs and implements a local backward rule. The graph keeps upstream dependencies alive without storing downstream references.
+
+`Engine::backward(loss)` starts from a scalar loss, collects its dependencies in topological order, and traverses them in reverse to accumulate gradients. Leaf gradients persist across fresh graphs until explicitly cleared with `Engine::zero_grad(parameters)`.
+
+```cpp
+#include "ad_value.h"
+#include "engine.h"
+
+ADvalue x(Tensor::full({}, 3.0f), true);
+Engine::zero_grad({x});
+ADvalue loss = x * x;
+Engine::backward(loss);
+```
+
+After backward, `x.grad()` contains a scalar Tensor with value 6, while `x.value()` remains 3.
+
+The first version supports first-order gradients and 0D scalar losses. Each non-leaf graph can be used for one backward pass; each training iteration builds a fresh graph while reusing the leaf parameters. Parameter updates will be handled by a separate optimizer.
 
 ## tests
 
@@ -115,13 +151,23 @@ Tensor tests cover:
 - 2D and batched matrix multiplication
 - invalid arguments and shape errors
 
-Run them with:
+Autograd tests cover all 26 operation Nodes, numerical gradients, finite-difference checks for smooth operations, broadcasting, views, reductions, and matmul. They also cover shared subgraphs, repeated inputs, gradient storage aliases, accumulation, zero_grad, and graph reuse restrictions.
+
+All six test programs pass: TensorData, BPE tokenizer, BPE trainer, CUDA backend, Tensor API, and autograd.
+
+Run Tensor tests:
 
 ```bash
 make tensor
 ```
 
-or together with the lower-level CUDA backend tests:
+Run autograd tests separately:
+
+```bash
+make autograd-test
+```
+
+Run all GPU tests together:
 
 ```bash
 make cuda-test
@@ -129,7 +175,7 @@ make cuda-test
 
 ## todo
 
-- autograd
+- SGD optimizer
 - neural network layers
 - Transformer
 - training

@@ -1,6 +1,6 @@
 /build/
 /data/*
-design.md
+/Devnotes/
 /benchmarks/perf/raw/
 perf.data
-notes.md
+.DS_Store
